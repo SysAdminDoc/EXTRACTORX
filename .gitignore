@@ -3,3 +3,8 @@
 *.tmp
 .vs/
 CLAUDE.md
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
