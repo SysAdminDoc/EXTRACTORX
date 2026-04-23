@@ -1,7 +1,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/PowerShell-WPF-5391FE?style=for-the-badge&logo=powershell&logoColor=white" alt="PowerShell"/>
   <img src="https://img.shields.io/badge/7--Zip-Powered-00B4D8?style=for-the-badge" alt="7-Zip"/>
-  <img src="https://img.shields.io/badge/version-2.1.0-6BCB77?style=for-the-badge" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-2.3.1-6BCB77?style=for-the-badge" alt="Version"/>
   <img src="https://img.shields.io/badge/license-MIT-888899?style=for-the-badge" alt="License"/>
 </p>
 
@@ -14,7 +14,7 @@
 
 <p align="center">
   Drag-and-drop batch extraction with password cycling, nested archive support,<br>
-  directory monitoring, and a premium dark interface — all in a single PowerShell script.
+  directory monitoring, and a premium themed interface. The original PowerShell app is preserved, and a modular Python port is now included.
 </p>
 
 ---
@@ -34,8 +34,8 @@
 - **Verbose real-time output** — see every file as it's extracted, with color-coded log entries
 
 ### Interface
-- **Custom dark chrome** — frameless window with branded title bar, no default Windows UI
-- **Dark theme everywhere** — custom-templated scrollbars, buttons, checkboxes, comboboxes, context menus, and child windows
+- **Custom chrome** — frameless window with branded title bar, no default Windows UI
+- **Multiple themes** — Midnight, Graphite, Ocean, and White themes across the main window, settings, dialogs, and menus
 - **Virtualized ListView** — handles 10,000+ queued items without lag
 - **Color-coded status rows** — green (success), red (failed), blue (extracting), yellow (password required), gray (queued)
 - **Drag & drop** — drop files or entire folders onto the window to queue archives
@@ -58,16 +58,13 @@
 - **Single file rename** — renames lone extracted files to match the archive name
 - **Broken file cleanup** — optionally deletes output when extraction fails
 
-## Screenshots
-
-> *Coming soon — run the script to see the interface*
-
 ## Requirements
 
-- **Windows 10/11** with PowerShell 5.1+
+- **Windows 10/11** with PowerShell 5.1+ for the legacy WPF app
+- **Python 3.10+** for the modular Python port
 - **7-Zip** — auto-detected from standard install paths, or downloaded automatically if not found
 
-No compilation, no build tools, no dependencies to install. Just run the script.
+The Python port uses the standard library Tkinter UI and does not require third-party packages.
 
 ## Installation
 
@@ -94,9 +91,57 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ## Usage
 
 ### Quick Start
-1. Run `ExtractorX.ps1`
-2. Drag archives onto the window (or click **+ Files** / **+ Folder**)
-3. Click **Extract All**
+1. Run `ExtractorX.ps1` for the original WPF app, or `python ExtractorX.py` for the Python port
+2. Drag archives onto the PowerShell window, or click **Add Files** / **Scan Folder**
+3. Click **Extract**
+
+### Python Port
+
+The Python implementation is organized into modules under `extractorx/`:
+
+```text
+ExtractorX.py              # Python entrypoint
+ExtractorX.Legacy.ps1      # Preserved copy of the polished PowerShell app
+extractorx/
+  app.py                   # Bootstrap and dependency wiring
+  config.py                # Config defaults, normalization, persistence
+  archive.py               # Archive detection, magic bytes, output paths
+  extractor.py             # 7-Zip extraction service
+  watcher.py               # Dependency-free watch-folder service
+  passwords.py             # DPAPI-backed password store
+  postprocess.py           # Cleanup, post-actions, external processors
+  shell_integration.py     # Explorer context menu registry integration
+  windows_integration.py   # Native drag/drop and tray icon bridge
+  ui.py                    # Tkinter desktop interface
+```
+
+Run it with:
+
+```powershell
+python .\ExtractorX.py
+python .\ExtractorX.py --target "D:\Extracted" "C:\Downloads\archive.zip"
+python .\ExtractorX.py --test "C:\Downloads\archive.zip"
+python .\ExtractorX.py --extract-here --auto-extract "C:\Downloads\archive.zip"
+```
+
+Current Python parity plus v2.3 additions: batch extraction, archive testing, password cycling,
+remembered batch passwords, password retry prompts, password text-file import, **password entropy
+meter**, **skip-after-N-failed-passwords policy**, nested extraction, watch folders with batched
+auto-extract, native Windows drag/drop, minimize-to-tray behavior, post-actions, file exclusions
+and **include masks**, the full legacy output-macro set plus `{Program Files}`, persistent log
+history, external processors, Explorer context menus, file associations, queue sorting,
+selected-item summaries, status-colored rows, completion sounds, right-click queue actions, live
+theme swapping, **Smart Extract policy (Auto/AlwaysWrap/NeverWrap)**, **filename encoding
+override**, **parallel extraction**, **pre/post/on-failure lifecycle hooks**, **backend selector
+for 7-Zip / 7-Zip ZS / NanaZip**, **handler allowlist**, **bookmarks menu**, **Identify button /
+`--identify` CLI**, **Export Script** toolbar action, **URL argument support**, and **portable
+mode** (drop a `portable.flag` sibling file to relocate config/logs to `ExtractorX.data/`).
+
+Tests live under `tests/` and run with:
+
+```bash
+python -m unittest discover -s tests
+```
 
 ### Command Line
 ```powershell
@@ -115,17 +160,20 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 | Macro | Description |
 |---|---|
 | `{ArchiveFolder}` | Directory containing the archive |
-| `{ArchiveName}` | Archive filename without extension |
-| `{ArchiveNameUnique}` | Archive name with counter if duplicate |
-| `{ArchiveExtension}` | Archive file extension |
+| `{ArchiveName}` | Archive filename without extension (compound `.tar.*` aware) |
+| `{ArchiveNameUnique}` | Archive name with `(N)` counter appended when the target path already exists |
+| `{ArchiveExtension}` / `{ArchiveExt}` | Archive file extension without the leading dot |
 | `{ArchiveFileName}` | Full archive filename with extension |
 | `{ArchiveFolderName}` | Name of the parent folder |
+| `{ArchivePath}` | Absolute archive path |
 | `{Desktop}` | User's Desktop path |
 | `{UserProfile}` | User's profile directory |
-| `{Guid}` | Random GUID |
+| `{Program Files}` / `{ProgramFiles}` | `%ProgramFiles%` directory |
+| `{Windows}` | `%windir%` |
+| `{Guid}` | Random 8-character GUID segment |
 | `{Date}` | Current date (yyyyMMdd) |
 | `{Time}` | Current time (HHmmss) |
-| `{Env:TEMP}` | System temp directory |
+| `{Env:TEMP}` | Any environment variable, e.g. `{Env:TEMP}`, `{Env:OneDrive}` |
 
 **Default:** `{ArchiveFolder}\{ArchiveName}` — extracts next to the archive into a folder matching its name.
 
@@ -144,7 +192,7 @@ ExtractorX has 9 settings tabs:
 
 | Tab | Controls |
 |---|---|
-| **General** | Always on top, minimize to tray, log history, deep detection |
+| **General** | Theme selection, always on top, minimize to tray, log history, deep detection |
 | **Destination** | Output path template, overwrite mode |
 | **Process** | Nested extraction, post-actions, cleanup, batch completion |
 | **Explorer** | Context menu entries and grouping |
@@ -174,7 +222,7 @@ Multi-volume archives (`.part1.rar`, `.7z.001`, `.zip.001`) are automatically de
 ExtractorX.ps1 (single file, ~2,500 lines)
 │
 ├── UI Thread (STA)
-│   ├── WPF Window (custom chrome, dark theme)
+│   ├── WPF Window (custom chrome, theme system)
 │   ├── Virtualized ListView (10k+ items)
 │   ├── DispatcherTimer (100ms polling)
 │   └── Event handlers (drag/drop, sorting, selection)
