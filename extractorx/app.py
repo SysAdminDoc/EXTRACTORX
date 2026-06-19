@@ -29,6 +29,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print archive format identification for the given paths and exit without launching the UI",
     )
+    parser.add_argument(
+        "--include-glob",
+        dest="include_glob",
+        default="",
+        help="Semicolon-separated include masks passed to 7-Zip (e.g. '*.json;*.md')",
+    )
+    parser.add_argument(
+        "--exclude-glob",
+        dest="exclude_glob",
+        default="",
+        help="Semicolon-separated exclude masks passed to 7-Zip (e.g. 'Thumbs.db;*.tmp')",
+    )
     return parser
 
 
@@ -49,6 +61,15 @@ def main(argv: list[str] | None = None) -> int:
         return _run_identify(args.files)
 
     config = load_config()
+    # CLI glob overrides are merged into the session config so they take
+    # effect on startup archives and any subsequent extraction triggered
+    # from the UI within this session.
+    if args.include_glob:
+        existing = str(config.get("IncludeMasks", "") or "").strip()
+        config["IncludeMasks"] = f"{existing};{args.include_glob}".strip(";") if existing else args.include_glob
+    if args.exclude_glob:
+        existing = str(config.get("FileExclusions", "") or "").strip()
+        config["FileExclusions"] = f"{existing};{args.exclude_glob}".strip(";") if existing else args.exclude_glob
     sevenzip_path = find_7zip(override=config.get("SevenZipOverride"))
     password_store = PasswordStore()
 

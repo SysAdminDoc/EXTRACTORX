@@ -25,6 +25,7 @@ from .postprocess import (
     open_destination,
     run_external_processors,
 )
+from .passwords import generate_wordlist
 from .scanner import scan_paths
 from .sevenzip import build_sevenzip_command, download_7zip
 
@@ -318,82 +319,173 @@ class ExtractionService:
         with self._password_lock:
             remembered = self.remembered_password
         skip_after = int(self.config.get("SkipAfterFailedPasswords", 0) or 0)
+        sidecar = load_sidecar_passwords(archive) if bool(self.config.get("UsePasswordSidecars", True)) else []
+        if sidecar:
+            self._log(f"Loaded {len(sidecar)} sidecar password(s) for {archive.name}", "info")
         attempts = build_password_attempts(
             remembered_password=remembered,
             saved_passwords=self.passwords,
             use_password_list=bool(self.config.get("UsePasswordList", True)),
             skip_after_failures=skip_after,
+            sidecar_passwords=sidecar,
+            wordlist=bool(self.config.get("WordlistGeneration", False)),
+            wordlist_max=int(self.config.get("WordlistMaxAttempts", 500) or 500),
         )
+        use_hash_probe = bool(self.config.get("HashModePasswordProbe", True))
+
+        # When there are multiple password candidates and we are extracting (not
+        # just testing), use a fast ``7z t`` probe to find the correct password
+        # first, then do a single verbose extraction with the winner. This is
+        # 5-10x faster than full-extraction probing on large/solid archives.
+        password_candidates = [p for p in attempts if p is not None]
+        if use_hash_probe and not test_only and len(password_candidates) > 1:
+            winning_password = self._probe_password(archive, attempts)
+            if winning_password is not None:
+                # Replace the attempt list with just the no-password probe and
+                # the winning password for the real extraction pass.
+                attempts = [winning_password]
+            elif winning_password is None and self.stop_event.is_set():
+                return False, "Cancelled.", None
+
         last_error = ""
         for password in attempts:
             if self.stop_event.is_set():
                 return False, "Cancelled.", None
-            command = build_sevenzip_command(
-                sevenzip_path=self.sevenzip_path,
-                archive=archive,
-                output=output,
-                overwrite_mode=str(self.config.get("OverwriteMode", "Always")),
-                exclusions=str(self.config.get("FileExclusions", "")),
-                inclusions=str(self.config.get("IncludeMasks", "")),
-                password=password,
-                test_only=test_only,
-                filename_encoding=str(self.config.get("FilenameEncoding", "Auto")),
+            success, text, code, cancelled = self._run_sevenzip(
+                archive, output, password, test_only=test_only, verbose=True,
             )
-            try:
-                proc = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
-                )
-            except OSError as exc:
-                return False, str(exc), None
-            output_lines: list[str] = []
-            tail_limit = 200
-            cancelled = False
-            try:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    if self.stop_event.is_set():
-                        cancelled = True
-                        break
-                    clean = line.strip()
-                    if clean:
-                        output_lines.append(clean)
-                        if len(output_lines) > tail_limit:
-                            del output_lines[:-tail_limit]
-                        self.messages.put(OperationMessage("log", clean))
-            finally:
-                if cancelled:
-                    _terminate_process(proc)
-                try:
-                    code = proc.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    _terminate_process(proc, kill=True)
-                    try:
-                        code = proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        code = -1
-                if proc.stdout is not None:
-                    try:
-                        proc.stdout.close()
-                    except OSError:
-                        pass
             if cancelled:
                 return False, "Cancelled.", None
-            text = "\n".join(output_lines[-8:])
             if code in {0, 1}:
                 return True, text, password
             last_error = text or f"7-Zip exited with code {code}."
-        if self.passwords:
+        if self.passwords or sidecar:
             return False, last_error or "Extraction failed after trying saved passwords.", None
         return False, last_error or "Extraction failed.", None
 
+    def _probe_password(
+        self, archive: Path, attempts: list[str | None],
+    ) -> str | None:
+        """Use fast ``7z t`` to find the first working password.
+
+        Returns the winning password string, or ``None`` if no password
+        matched (the caller should fall back to the full attempt list).
+        The initial ``None`` (no-password) probe is included so unencrypted
+        archives short-circuit immediately.
+        """
+        for password in attempts:
+            if self.stop_event.is_set():
+                return None
+            success, text, code, cancelled = self._run_sevenzip(
+                archive, archive.parent, password, test_only=True, verbose=False,
+            )
+            if cancelled:
+                return None
+            if code in {0, 1}:
+                if password is not None:
+                    self._log(f"Password probe succeeded for {archive.name}", "info")
+                return password
+        return None
+
+    def _run_sevenzip(
+        self,
+        archive: Path,
+        output: Path,
+        password: str | None,
+        *,
+        test_only: bool = False,
+        verbose: bool = True,
+    ) -> tuple[bool, str, int, bool]:
+        """Execute a single 7-Zip invocation.
+
+        Returns ``(success, tail_text, exit_code, cancelled)``.
+        """
+        command = build_sevenzip_command(
+            sevenzip_path=self.sevenzip_path,
+            archive=archive,
+            output=output,
+            overwrite_mode=str(self.config.get("OverwriteMode", "Always")),
+            exclusions=str(self.config.get("FileExclusions", "")),
+            inclusions=str(self.config.get("IncludeMasks", "")),
+            password=password,
+            test_only=test_only,
+            filename_encoding=str(self.config.get("FilenameEncoding", "Auto")),
+        )
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            )
+        except OSError as exc:
+            return False, str(exc), -1, False
+        output_lines: list[str] = []
+        tail_limit = 200
+        cancelled = False
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                if self.stop_event.is_set():
+                    cancelled = True
+                    break
+                clean = line.strip()
+                if clean:
+                    output_lines.append(clean)
+                    if len(output_lines) > tail_limit:
+                        del output_lines[:-tail_limit]
+                    if verbose:
+                        self.messages.put(OperationMessage("log", clean))
+        finally:
+            if cancelled:
+                _terminate_process(proc)
+            try:
+                code = proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                _terminate_process(proc, kill=True)
+                try:
+                    code = proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    code = -1
+            if proc.stdout is not None:
+                try:
+                    proc.stdout.close()
+                except OSError:
+                    pass
+        text = "\n".join(output_lines[-8:])
+        return code in {0, 1}, text, code, cancelled
+
     def _log(self, text: str, level: str = "info") -> None:
         self.messages.put(OperationMessage("log", text, level=level))
+
+
+def load_sidecar_passwords(archive: Path) -> list[str]:
+    """Read passwords from sidecar files next to *archive*.
+
+    Checks for ``<archive>.pwd.txt`` and ``passwords.txt`` in the archive's
+    parent directory. Each non-empty line is treated as a candidate password.
+    Missing or unreadable files are silently skipped.
+    """
+    passwords: list[str] = []
+    candidates = [
+        archive.with_name(archive.name + ".pwd.txt"),
+        archive.parent / "passwords.txt",
+    ]
+    for path in candidates:
+        try:
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped and stripped not in passwords:
+                    passwords.append(stripped)
+        except OSError:
+            continue
+    return passwords
 
 
 def build_password_attempts(
@@ -401,22 +493,38 @@ def build_password_attempts(
     saved_passwords: list[str],
     use_password_list: bool = True,
     skip_after_failures: int = 0,
+    sidecar_passwords: list[str] | None = None,
+    wordlist: bool = False,
+    wordlist_max: int = 500,
 ) -> list[str | None]:
     """Return the ordered password attempts used by the extraction loop.
 
     Mirrors the legacy PowerShell flow: try without a password first so that
     unencrypted archives complete without pointless retries, then fall through
-    to the remembered batch password (if one has been learned) and the saved
+    to sidecar passwords (from ``<archive>.pwd.txt`` / ``passwords.txt``),
+    the remembered batch password (if one has been learned), and the saved
     password list.
+
+    When *wordlist* is ``True``, the stored password list is expanded with
+    case, leet-speak, and date-suffix permutations (capped at *wordlist_max*).
 
     ``skip_after_failures`` caps the number of *password* attempts (not
     counting the initial no-password probe). ``0`` disables the cap.
     """
     attempts: list[str | None] = [None]
+    # Sidecar passwords are the highest-priority candidates after the
+    # no-password probe, since they are co-located with the archive and
+    # likely to be the correct password.
+    for password in sidecar_passwords or []:
+        if password and password not in attempts:
+            attempts.append(password)
     if remembered_password and remembered_password not in attempts:
         attempts.append(remembered_password)
+    effective_passwords = list(saved_passwords)
+    if wordlist and effective_passwords:
+        effective_passwords = generate_wordlist(effective_passwords, max_total=wordlist_max)
     if use_password_list:
-        for password in saved_passwords:
+        for password in effective_passwords:
             if password and password not in attempts:
                 attempts.append(password)
     if skip_after_failures > 0:

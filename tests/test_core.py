@@ -798,5 +798,178 @@ class WatcherTests(unittest.TestCase):
                 service.stop()
 
 
+class SidecarPasswordTests(unittest.TestCase):
+    def test_loads_archive_pwd_file(self) -> None:
+        from extractorx.extractor import load_sidecar_passwords
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive = root / "secret.7z"
+            archive.write_text("placeholder", encoding="utf-8")
+            sidecar = root / "secret.7z.pwd.txt"
+            sidecar.write_text("pass1\npass2\n", encoding="utf-8")
+            passwords = load_sidecar_passwords(archive)
+            self.assertEqual(passwords, ["pass1", "pass2"])
+
+    def test_loads_directory_passwords_file(self) -> None:
+        from extractorx.extractor import load_sidecar_passwords
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive = root / "archive.zip"
+            archive.write_text("placeholder", encoding="utf-8")
+            (root / "passwords.txt").write_text("abc\ndef\n", encoding="utf-8")
+            passwords = load_sidecar_passwords(archive)
+            self.assertEqual(passwords, ["abc", "def"])
+
+    def test_deduplicates_and_skips_empty_lines(self) -> None:
+        from extractorx.extractor import load_sidecar_passwords
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            archive = root / "dup.zip"
+            archive.write_text("placeholder", encoding="utf-8")
+            sidecar = root / "dup.zip.pwd.txt"
+            sidecar.write_text("alpha\n\nalpha\nbeta\n", encoding="utf-8")
+            passwords = load_sidecar_passwords(archive)
+            self.assertEqual(passwords, ["alpha", "beta"])
+
+    def test_missing_sidecars_returns_empty(self) -> None:
+        from extractorx.extractor import load_sidecar_passwords
+
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Path(folder) / "nopasswords.zip"
+            archive.write_text("placeholder", encoding="utf-8")
+            self.assertEqual(load_sidecar_passwords(archive), [])
+
+    def test_build_password_attempts_with_sidecars(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password=None,
+            saved_passwords=["saved1"],
+            sidecar_passwords=["sidecar1", "sidecar2"],
+        )
+        # Sidecar passwords should come before saved passwords
+        self.assertEqual(attempts, [None, "sidecar1", "sidecar2", "saved1"])
+
+    def test_sidecar_dedup_with_remembered(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password="sidecar1",
+            saved_passwords=["saved1"],
+            sidecar_passwords=["sidecar1"],
+        )
+        self.assertEqual(attempts, [None, "sidecar1", "saved1"])
+
+
+class WordlistTests(unittest.TestCase):
+    def test_generates_case_variants(self) -> None:
+        from extractorx.passwords import generate_wordlist
+
+        result = generate_wordlist(["Hello"], case_variants=True, leet_variants=False, date_suffixes=False)
+        self.assertIn("Hello", result)
+        self.assertIn("hello", result)
+        self.assertIn("HELLO", result)
+        self.assertIn("hELLO", result)
+
+    def test_generates_leet_variants(self) -> None:
+        from extractorx.passwords import generate_wordlist
+
+        result = generate_wordlist(["test"], case_variants=False, leet_variants=True, date_suffixes=False)
+        self.assertIn("test", result)
+        self.assertIn("7357", result)
+
+    def test_generates_date_suffixes(self) -> None:
+        from datetime import datetime
+        from extractorx.passwords import generate_wordlist
+
+        result = generate_wordlist(["pw"], case_variants=False, leet_variants=False, date_suffixes=True)
+        year = str(datetime.now().year)
+        self.assertIn("pw" + year, result)
+        self.assertIn("pw!", result)
+        self.assertIn("pw123", result)
+
+    def test_respects_max_total(self) -> None:
+        from extractorx.passwords import generate_wordlist
+
+        result = generate_wordlist(["a", "b", "c"], max_total=5)
+        self.assertLessEqual(len(result), 5)
+        self.assertEqual(result[:3], ["a", "b", "c"])
+
+    def test_empty_input(self) -> None:
+        from extractorx.passwords import generate_wordlist
+
+        self.assertEqual(generate_wordlist([]), [])
+
+    def test_build_password_attempts_with_wordlist(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password=None,
+            saved_passwords=["pass"],
+            wordlist=True,
+            wordlist_max=50,
+        )
+        self.assertIn(None, attempts)
+        self.assertIn("pass", attempts)
+        # Should have variants beyond just the original
+        self.assertGreater(len(attempts), 2)
+
+
+class HashModeProbeTests(unittest.TestCase):
+    def test_run_sevenzip_method_exists(self) -> None:
+        """Verify the refactored _run_sevenzip helper is callable."""
+        from extractorx.extractor import ExtractionService
+
+        self.assertTrue(hasattr(ExtractionService, "_run_sevenzip"))
+        self.assertTrue(hasattr(ExtractionService, "_probe_password"))
+
+
+class HighContrastThemeTests(unittest.TestCase):
+    def test_high_contrast_theme_exists(self) -> None:
+        from extractorx.themes import get_theme
+
+        palette = get_theme("HighContrast")
+        self.assertEqual(palette["bg"], "#000000")
+        self.assertEqual(palette["text"], "#FFFFFF")
+        self.assertEqual(palette["accent"], "#FFFF00")
+
+    def test_high_contrast_in_config_themes(self) -> None:
+        from extractorx.config import THEMES
+
+        self.assertIn("HighContrast", THEMES)
+
+    def test_config_accepts_high_contrast(self) -> None:
+        config = normalize_config({"Theme": "HighContrast"})
+        self.assertEqual(config["Theme"], "HighContrast")
+
+
+class PatternScopedExtractionTests(unittest.TestCase):
+    def test_include_glob_cli_argument(self) -> None:
+        from extractorx.app import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--include-glob", "*.json;*.md", "archive.zip"])
+        self.assertEqual(args.include_glob, "*.json;*.md")
+
+    def test_exclude_glob_cli_argument(self) -> None:
+        from extractorx.app import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["--exclude-glob", "Thumbs.db;*.tmp", "archive.zip"])
+        self.assertEqual(args.exclude_glob, "Thumbs.db;*.tmp")
+
+
+class NewConfigKeysTests(unittest.TestCase):
+    def test_new_defaults_present(self) -> None:
+        config = normalize_config(None)
+        self.assertTrue(config["UsePasswordSidecars"])
+        self.assertTrue(config["HashModePasswordProbe"])
+        self.assertFalse(config["WordlistGeneration"])
+        self.assertEqual(config["WordlistMaxAttempts"], 500)
+
+    def test_wordlist_max_clamped(self) -> None:
+        config = normalize_config({"WordlistMaxAttempts": 99999})
+        self.assertEqual(config["WordlistMaxAttempts"], 10000)
+        config = normalize_config({"WordlistMaxAttempts": 1})
+        self.assertEqual(config["WordlistMaxAttempts"], 10)
+
+
 if __name__ == "__main__":
     unittest.main()

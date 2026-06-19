@@ -68,6 +68,22 @@ THEMES: dict[str, dict[str, str]] = {
         "error": "#C73844",
         "selection": "#E3F4FA",
     },
+    "HighContrast": {
+        "bg": "#000000",
+        "chrome": "#000000",
+        "surface": "#1A1A1A",
+        "surface_2": "#0D0D0D",
+        "border": "#FFFFFF",
+        "text": "#FFFFFF",
+        "muted": "#E0E0E0",
+        "accent": "#FFFF00",
+        "accent_hover": "#FFFF66",
+        "on_accent": "#000000",
+        "ok": "#00FF00",
+        "warn": "#FFD700",
+        "error": "#FF3333",
+        "selection": "#0000AA",
+    },
 }
 
 

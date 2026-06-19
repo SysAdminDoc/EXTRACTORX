@@ -55,6 +55,73 @@ def classify_entropy(password: str) -> tuple[str, float]:
     return label, bits
 
 
+_LEET_MAP = str.maketrans({"a": "4", "e": "3", "i": "1", "o": "0", "s": "5", "t": "7"})
+
+
+def generate_wordlist(
+    passwords: list[str],
+    *,
+    case_variants: bool = True,
+    leet_variants: bool = True,
+    date_suffixes: bool = True,
+    max_total: int = 500,
+) -> list[str]:
+    """Expand *passwords* with case, leet-speak, and date-suffix permutations.
+
+    Returns at most *max_total* unique candidates. The original passwords are
+    always included first so the caller can feed the result straight into the
+    password-attempt pipeline.
+    """
+    from datetime import datetime
+
+    seen: set[str] = set()
+    result: list[str] = []
+
+    def add(candidate: str) -> bool:
+        if candidate in seen or not candidate:
+            return True
+        if len(result) >= max_total:
+            return False
+        seen.add(candidate)
+        result.append(candidate)
+        return True
+
+    for password in passwords:
+        if not add(password):
+            return result
+
+    for password in passwords:
+        if case_variants:
+            if not add(password.lower()):
+                return result
+            if not add(password.upper()):
+                return result
+            if not add(password.capitalize()):
+                return result
+            if not add(password.swapcase()):
+                return result
+        if leet_variants:
+            leet = password.lower().translate(_LEET_MAP)
+            if not add(leet):
+                return result
+            if not add(leet.capitalize()):
+                return result
+        if date_suffixes:
+            now = datetime.now()
+            for suffix in (
+                str(now.year),
+                now.strftime("%m%Y"),
+                now.strftime("%Y%m"),
+                str(now.year - 1),
+                "!",
+                "1",
+                "123",
+            ):
+                if not add(password + suffix):
+                    return result
+    return result
+
+
 class DATA_BLOB(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
 

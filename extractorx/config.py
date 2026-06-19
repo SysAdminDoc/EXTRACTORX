@@ -18,7 +18,7 @@ APP_NAME = "ExtractorX"
 CONFIG_FILE = "config.json"
 PORTABLE_FLAG = "portable.flag"
 
-THEMES = ("Midnight", "Graphite", "Ocean", "White")
+THEMES = ("Midnight", "Graphite", "Ocean", "White", "HighContrast")
 OVERWRITE_MODES = ("Always", "Never", "Rename")
 POST_ACTIONS = ("None", "Recycle", "MoveToFolder", "Delete")
 DRAG_DROP_FILTERS = ("None", "Inclusion", "Exclusion")
@@ -76,6 +76,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "FilenameEncoding": "Auto",
     "IncludeMasks": "",
     "SkipAfterFailedPasswords": 0,
+    "UsePasswordSidecars": True,
+    "HashModePasswordProbe": True,
+    "WordlistGeneration": False,
+    "WordlistMaxAttempts": 500,
     "PreExtractCommand": "",
     "PostExtractCommand": "",
     "OnFailureCommand": "",
@@ -222,6 +226,9 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         "CtxEnqueue",
         "CtxSearchArchives",
         "SoundsEnabled",
+        "UsePasswordSidecars",
+        "HashModePasswordProbe",
+        "WordlistGeneration",
     )
     for key in bool_keys:
         config[key] = _as_bool(config[key])
@@ -249,6 +256,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     config["WindowTop"] = _clamp_int(config["WindowTop"], -1, -1, 100000)
     config["MaxParallelExtractions"] = _clamp_int(config["MaxParallelExtractions"], 1, 1, 8)
     config["SkipAfterFailedPasswords"] = _clamp_int(config["SkipAfterFailedPasswords"], 0, 0, 9999)
+    config["WordlistMaxAttempts"] = _clamp_int(config["WordlistMaxAttempts"], 500, 10, 10000)
 
     config["OutputPath"] = str(config["OutputPath"] or DEFAULT_CONFIG["OutputPath"])
     config["PostActionFolder"] = str(config["PostActionFolder"] or "")
