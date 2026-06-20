@@ -90,6 +90,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "RetryCount": 0,
     "RetryDelaySeconds": 30,
     "SecureDelete": False,
+    "PasswordRules": [],
     "HandlerAllowlist": [],
     "Bookmarks": [],
 }
@@ -280,6 +281,16 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
 
     config["WatchFolders"] = [str(item) for item in _as_list(config["WatchFolders"]) if str(item).strip()]
     config["FileAssociations"] = [str(item) for item in _as_list(config["FileAssociations"]) if str(item).strip()]
+    pw_rules: list[dict[str, object]] = []
+    for entry in _as_list(config["PasswordRules"]):
+        if isinstance(entry, dict):
+            pattern = str(entry.get("Pattern", "")).strip()
+            passwords_val = entry.get("Passwords", [])
+            passwords_list = [str(p) for p in _as_list(passwords_val) if str(p).strip()]
+            if pattern and passwords_list:
+                pw_rules.append({"Pattern": pattern, "Passwords": passwords_list})
+    config["PasswordRules"] = pw_rules
+
     config["HandlerAllowlist"] = [
         str(item).strip().lower().lstrip(".")
         for item in _as_list(config["HandlerAllowlist"])

@@ -145,6 +145,54 @@ def download_7zip() -> Path:
     return sevenz if sevenz.exists() else sevenzr
 
 
+def list_archive_contents(
+    sevenzip_path: Path | str | None,
+    archive: Path | str,
+    password: str | None = None,
+) -> list[dict[str, str]]:
+    """List the contents of *archive* using ``7z l`` without extracting.
+
+    Returns a list of dicts with keys: ``Path``, ``Size``, ``Modified``, ``Attr``.
+    """
+    command: list[str] = [
+        str(sevenzip_path) if sevenzip_path else "7z",
+        "l",
+        str(archive),
+        "-slt",
+        "-y",
+    ]
+    if password:
+        command.append(f"-p{password}")
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("Path = ") and current.get("Path"):
+            entries.append(current)
+            current = {}
+        if " = " in line:
+            key, _, value = line.partition(" = ")
+            key = key.strip()
+            if key in ("Path", "Size", "Modified", "Attr", "Folder"):
+                current[key] = value.strip()
+    if current.get("Path"):
+        entries.append(current)
+    return [e for e in entries if e.get("Folder", "") != "+"]
+
+
 def overwrite_switch(mode: str) -> str:
     if mode == "Never":
         return "-aos"

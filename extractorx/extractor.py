@@ -387,6 +387,8 @@ class ExtractionService:
             sidecar_passwords=sidecar,
             wordlist=bool(self.config.get("WordlistGeneration", False)),
             wordlist_max=int(self.config.get("WordlistMaxAttempts", 500) or 500),
+            password_rules=list(self.config.get("PasswordRules", []) or []),
+            archive_name=archive.name,
         )
         use_hash_probe = bool(self.config.get("HashModePasswordProbe", True))
         encoding_setting = str(self.config.get("FilenameEncoding", "Auto"))
@@ -576,6 +578,8 @@ def build_password_attempts(
     sidecar_passwords: list[str] | None = None,
     wordlist: bool = False,
     wordlist_max: int = 500,
+    password_rules: list[dict] | None = None,
+    archive_name: str = "",
 ) -> list[str | None]:
     """Return the ordered password attempts used by the extraction loop.
 
@@ -598,6 +602,17 @@ def build_password_attempts(
     for password in sidecar_passwords or []:
         if password and password not in attempts:
             attempts.append(password)
+    for rule in password_rules or []:
+        pattern = str(rule.get("Pattern", ""))
+        rule_passwords = rule.get("Passwords", [])
+        if pattern and archive_name:
+            try:
+                if _re.search(pattern, archive_name, _re.IGNORECASE):
+                    for pw in rule_passwords:
+                        if pw and pw not in attempts:
+                            attempts.append(pw)
+            except _re.error:
+                continue
     if remembered_password and remembered_password not in attempts:
         attempts.append(remembered_password)
     effective_passwords = list(saved_passwords)

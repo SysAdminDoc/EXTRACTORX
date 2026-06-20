@@ -1074,6 +1074,50 @@ class SecureDeleteConfigTests(unittest.TestCase):
         self.assertFalse(config["SecureDelete"])
 
 
+class PasswordRulesTests(unittest.TestCase):
+    def test_regex_match_prioritizes_rule_passwords(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password=None,
+            saved_passwords=["global1"],
+            password_rules=[{"Pattern": r"backup_.*\.rar", "Passwords": ["secret1", "secret2"]}],
+            archive_name="backup_2026.rar",
+        )
+        self.assertIn("secret1", attempts)
+        self.assertIn("secret2", attempts)
+        idx_s1 = attempts.index("secret1")
+        idx_g1 = attempts.index("global1")
+        self.assertLess(idx_s1, idx_g1)
+
+    def test_no_match_skips_rule(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password=None,
+            saved_passwords=["global1"],
+            password_rules=[{"Pattern": r"photos_.*", "Passwords": ["photo_pw"]}],
+            archive_name="backup_2026.rar",
+        )
+        self.assertNotIn("photo_pw", attempts)
+
+    def test_invalid_regex_ignored(self) -> None:
+        attempts = build_password_attempts(
+            remembered_password=None,
+            saved_passwords=["x"],
+            password_rules=[{"Pattern": r"[invalid", "Passwords": ["y"]}],
+            archive_name="test.zip",
+        )
+        self.assertNotIn("y", attempts)
+
+    def test_config_normalization(self) -> None:
+        config = normalize_config({
+            "PasswordRules": [
+                {"Pattern": "test.*", "Passwords": ["pw1", "pw2"]},
+                {"Pattern": "", "Passwords": ["empty"]},
+                {"Pattern": "valid", "Passwords": []},
+            ]
+        })
+        self.assertEqual(len(config["PasswordRules"]), 1)
+        self.assertEqual(config["PasswordRules"][0]["Pattern"], "test.*")
+
+
 class AutoUpdateTests(unittest.TestCase):
     def test_version_tuple_parsing(self) -> None:
         from extractorx.download import _version_tuple

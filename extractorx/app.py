@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print archive format identification for the given paths and exit without launching the UI",
     )
     parser.add_argument(
+        "--daemon",
+        action="store_true",
+        help="Run in headless daemon mode (watch folders, extract, log to stdout, no GUI)",
+    )
+    parser.add_argument(
         "--include-glob",
         dest="include_glob",
         default="",
@@ -59,6 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.identify:
         return _run_identify(args.files)
+    if args.daemon:
+        from .daemon import run_daemon
+        return run_daemon()
 
     config = load_config()
     # CLI glob overrides are merged into the session config so they take

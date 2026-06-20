@@ -22,6 +22,7 @@ from .config import (
     SMART_EXTRACT_MODES,
     THEMES as THEME_NAMES,
 )
+from .sevenzip import list_archive_contents
 from .config import app_data_dir
 from .config import save_config
 from .download import check_for_updates, looks_like_url
@@ -200,6 +201,7 @@ class ExtractorXApp:
         ttk.Button(toolbar, text="Clear All", command=self._clear_all).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Identify", command=self._identify_dialog).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Export Script", command=self._export_batch_script).pack(side="left", padx=(0, 8))
+        ttk.Button(toolbar, text="Search", command=self._search_archives).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="About", command=self._show_about).pack(side="right", padx=(8, 0))
         ttk.Button(toolbar, text="Settings", command=self._settings).pack(side="right", padx=(0, 8))
         self.bookmarks_button = ttk.Button(toolbar, text="Bookmarks", command=self._show_bookmarks_menu)
@@ -252,6 +254,7 @@ class ExtractorXApp:
         self.log_menu = tk.Menu(self.root, tearoff=False, bg=p["surface_2"], fg=p["text"], activebackground=p["selection"], activeforeground=p["text"])
         self.log_menu.add_command(label="Copy", command=self._copy_log_selection)
         self.log_menu.add_command(label="Clear Log", command=self._clear_log)
+        self.log_menu.add_command(label="Export History...", command=self._export_history)
         self.log_menu.add_separator()
         self.log_menu.add_command(label="Open Log Folder", command=self._open_log_folder)
         self.log.bind("<Button-3>", self._show_log_menu)
@@ -271,6 +274,7 @@ class ExtractorXApp:
         self.queue_menu.add_separator()
         self.queue_menu.add_command(label="Set Destination...", command=self._set_selected_destination)
         self.queue_menu.add_command(label="Open Destination", command=self._open_selected_destination)
+        self.queue_menu.add_command(label="Preview Contents", command=self._preview_selected_contents)
         self.queue_menu.add_command(label="Reveal Archive", command=self._reveal_selected_archive)
         self.queue_menu.add_command(label="Copy Archive Path", command=self._copy_selected_archive_path)
         self.queue_menu.add_command(label="Copy Destination Path", command=self._copy_selected_destination_path)
@@ -517,6 +521,29 @@ class ExtractorXApp:
         self.config["Bookmarks"] = bookmarks
         save_config(self.config)
         self._log("Bookmark added.", "success")
+
+    def _search_archives(self) -> None:
+        if not self.items:
+            self._log("Queue is empty — nothing to search.", "warning")
+            return
+        pattern = simpledialog.askstring("Search Archives", "Filename pattern (e.g. *.txt, readme*):", parent=self.root)
+        if not pattern:
+            return
+        self._log(f"Searching queued archives for '{pattern}'...", "info")
+        import threading
+        def do_search() -> None:
+            matches = 0
+            for item in list(self.items.values()):
+                if not item.archive_path.exists():
+                    continue
+                entries = list_archive_contents(self.sevenzip_path, item.archive_path)
+                for entry in entries:
+                    entry_path = entry.get("Path", "")
+                    if fnmatch.fnmatch(entry_path.lower(), pattern.lower()) or fnmatch.fnmatch(Path(entry_path).name.lower(), pattern.lower()):
+                        self.root.after(0, lambda a=item.archive_path.name, p=entry_path: self._log(f"  {a}: {p}", "success"))
+                        matches += 1
+            self.root.after(0, lambda: self._log(f"Search complete: {matches} match(es) found.", "info"))
+        threading.Thread(target=do_search, name="ExtractorXSearch", daemon=True).start()
 
     def _show_about(self) -> None:
         sevenzip = str(self.sevenzip_path) if self.sevenzip_path else "not found (will download on first extract)"
@@ -797,6 +824,44 @@ class ExtractorXApp:
             self._update_item(item)
         self._log(f"Destination override set for {len(selected)} item(s).", "success")
 
+    def _preview_selected_contents(self) -> None:
+        items = self._selected_items()[:1]
+        if not items:
+            self._log("Select an archive to preview.", "warning")
+            return
+        item = items[0]
+        if not item.archive_path.exists():
+            self._log("Archive no longer exists.", "warning")
+            return
+        entries = list_archive_contents(self.sevenzip_path, item.archive_path)
+        if not entries:
+            self._log(f"No contents found in {item.archive_path.name}.", "warning")
+            return
+        window = tk.Toplevel(self.root)
+        window.title(f"Contents: {item.archive_path.name}")
+        window.transient(self.root)
+        window.geometry("700x500")
+        window.configure(bg=self.palette["bg"])
+        tree = ttk.Treeview(window, columns=("path", "size", "modified"), show="headings", selectmode="extended")
+        tree.heading("path", text="Path")
+        tree.heading("size", text="Size")
+        tree.heading("modified", text="Modified")
+        tree.column("path", width=420, anchor="w")
+        tree.column("size", width=100, anchor="e")
+        tree.column("modified", width=160, anchor="w")
+        scroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        for entry in entries:
+            size_str = entry.get("Size", "")
+            try:
+                size_str = format_size(int(size_str)) if size_str else ""
+            except ValueError:
+                pass
+            tree.insert("", "end", values=(entry.get("Path", ""), size_str, entry.get("Modified", "")))
+        self._log(f"Previewed {len(entries)} item(s) in {item.archive_path.name}.", "info")
+
     def _open_selected_destination(self) -> None:
         for item in self._selected_items()[:1]:
             target = item.output_path
@@ -972,6 +1037,41 @@ class ExtractorXApp:
         if text:
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
+
+    def _export_history(self) -> None:
+        if not self.items:
+            self._log("No items to export.", "warning")
+            return
+        target = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export extraction history",
+            defaultextension=".csv",
+            filetypes=(("CSV", "*.csv"), ("JSON", "*.json"), ("All", "*.*")),
+        )
+        if not target:
+            return
+        import csv, json
+        items_data = [
+            {
+                "archive": str(item.archive_path),
+                "destination": str(item.output_path or ""),
+                "status": item.status.value,
+                "size": item.size_bytes,
+                "error": item.error,
+            }
+            for item in self.items.values()
+        ]
+        try:
+            if target.endswith(".json"):
+                Path(target).write_text(json.dumps(items_data, indent=2), encoding="utf-8")
+            else:
+                with open(target, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=["archive", "destination", "status", "size", "error"])
+                    writer.writeheader()
+                    writer.writerows(items_data)
+            self._log(f"Exported {len(items_data)} item(s) to {target}", "success")
+        except OSError as exc:
+            messagebox.showerror("Export failed", str(exc), parent=self.root)
 
     def _clear_log(self) -> None:
         self.log.delete("1.0", "end")
