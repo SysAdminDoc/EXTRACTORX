@@ -980,6 +980,41 @@ class ExtractorXApp:
         flat_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(controls, text="Flat view", variable=flat_var, command=lambda: populate(flat_var.get())).pack(side="left")
         ttk.Label(controls, text=f"{len(entries)} item(s)", style="Muted.TLabel").pack(side="right")
+
+        def extract_selected_files() -> None:
+            selected = tree.selection()
+            if not selected:
+                messagebox.showwarning("No selection", "Select files to extract.", parent=window)
+                return
+            dest = filedialog.askdirectory(title="Extract selected files to...", parent=window)
+            if not dest:
+                return
+            paths_to_extract = []
+            for iid in selected:
+                vals = tree.item(iid, "values")
+                if vals:
+                    paths_to_extract.append(vals[0])
+            if not paths_to_extract or not self.sevenzip_path:
+                return
+            import subprocess as sp
+            cmd = [str(self.sevenzip_path), "x", str(item.archive_path), f"-o{dest}", "-y"]
+            for p in paths_to_extract:
+                cmd.append(f"-i!{p}")
+            try:
+                result = sp.run(
+                    cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=3600,
+                    creationflags=sp.CREATE_NO_WINDOW if hasattr(sp, "CREATE_NO_WINDOW") else 0,
+                    check=False,
+                )
+                if result.returncode in {0, 1}:
+                    self._log(f"Extracted {len(paths_to_extract)} file(s) to {dest}", "success")
+                else:
+                    self._log(f"Selective extraction failed (exit {result.returncode})", "error")
+            except (OSError, sp.TimeoutExpired) as exc:
+                self._log(f"Selective extraction failed: {exc}", "error")
+
+        ttk.Button(controls, text="Extract Selected", command=extract_selected_files).pack(side="right", padx=(8, 0))
         self._log(f"Previewed {len(entries)} item(s) in {item.archive_path.name}.", "info")
 
     def _hex_view_selected(self) -> None:
