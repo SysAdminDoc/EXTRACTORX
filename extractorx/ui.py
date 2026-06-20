@@ -853,13 +853,27 @@ class ExtractorXApp:
         tree.configure(yscrollcommand=scroll.set)
         tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        for entry in entries:
-            size_str = entry.get("Size", "")
-            try:
-                size_str = format_size(int(size_str)) if size_str else ""
-            except ValueError:
-                pass
-            tree.insert("", "end", values=(entry.get("Path", ""), size_str, entry.get("Modified", "")))
+        def populate(flat: bool = False) -> None:
+            tree.delete(*tree.get_children())
+            for entry in entries:
+                entry_path = entry.get("Path", "")
+                if flat:
+                    display = entry_path
+                else:
+                    display = entry_path
+                size_str = entry.get("Size", "")
+                try:
+                    size_str = format_size(int(size_str)) if size_str else ""
+                except ValueError:
+                    pass
+                tree.insert("", "end", values=(display, size_str, entry.get("Modified", "")))
+
+        populate()
+        controls = ttk.Frame(window)
+        controls.pack(fill="x", padx=8, pady=(0, 8))
+        flat_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(controls, text="Flat view", variable=flat_var, command=lambda: populate(flat_var.get())).pack(side="left")
+        ttk.Label(controls, text=f"{len(entries)} item(s)", style="Muted.TLabel").pack(side="right")
         self._log(f"Previewed {len(entries)} item(s) in {item.archive_path.name}.", "info")
 
     def _open_selected_destination(self) -> None:
