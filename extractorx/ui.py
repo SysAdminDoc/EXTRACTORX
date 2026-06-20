@@ -609,7 +609,7 @@ class ExtractorXApp:
         sevenzip = str(self.sevenzip_path) if self.sevenzip_path else "not found (will download on first extract)"
         messagebox.showinfo(
             "About ExtractorX",
-            "ExtractorX Python\n\nBulk archive extraction for Windows with queueing, monitoring, "
+            f"ExtractorX v{__version__}\n\nBulk archive extraction for Windows with queueing, monitoring, "
             "nested extraction, password cycling, and 7-Zip integration.\n\n"
             f"7-Zip: {sevenzip}\n"
             f"Config: {app_data_dir()}\n\n"
@@ -961,12 +961,10 @@ class ExtractorXApp:
         scroll.pack(side="right", fill="y")
         def populate(flat: bool = False) -> None:
             tree.delete(*tree.get_children())
-            for entry in entries:
+            display_entries = sorted(entries, key=lambda e: e.get("Path", "").lower()) if flat else entries
+            for entry in display_entries:
                 entry_path = entry.get("Path", "")
-                if flat:
-                    display = entry_path
-                else:
-                    display = entry_path
+                display = Path(entry_path).name if flat else entry_path
                 size_str = entry.get("Size", "")
                 try:
                     size_str = format_size(int(size_str)) if size_str else ""

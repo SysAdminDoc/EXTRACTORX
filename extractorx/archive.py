@@ -63,15 +63,16 @@ def is_archive_path(path: Path | str) -> bool:
 def has_archive_magic(path: Path | str) -> bool:
     file_path = Path(path)
     try:
+        file_size = file_path.stat().st_size
         with file_path.open("rb") as handle:
             head = handle.read(16)
             if any(head.startswith(signature) for signature in MAGIC_BYTES):
                 return True
-            if file_path.stat().st_size > 262:
+            if file_size > 262:
                 handle.seek(257)
                 if handle.read(5) == b"ustar":
                     return True
-            if file_path.stat().st_size > 32773:
+            if file_size > 32773:
                 handle.seek(32769)
                 if handle.read(5) == b"CD001":
                     return True
@@ -141,13 +142,13 @@ def resolve_output_path(template: str, archive: Path | str) -> Path:
     if "{ArchiveNameUnique}" in resolved:
         base = resolved.replace("{ArchiveNameUnique}", name)
         if Path(base).exists():
-            counter = 1
-            while True:
+            for counter in range(1, 10001):
                 candidate = resolved.replace("{ArchiveNameUnique}", f"{name} ({counter})")
                 if not Path(candidate).exists():
                     resolved = candidate
                     break
-                counter += 1
+            else:
+                resolved = resolved.replace("{ArchiveNameUnique}", f"{name} ({uuid4().hex[:8]})")
         else:
             resolved = base
     return Path(resolved).expanduser()

@@ -1174,5 +1174,54 @@ class RepackTests(unittest.TestCase):
         self.assertTrue(any("Unsupported" in e for e in errors))
 
 
+class SecureDeleteTests(unittest.TestCase):
+    def test_secure_delete_overwrites_content(self) -> None:
+        from extractorx.postprocess import secure_delete
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "secret.txt"
+            path.write_bytes(b"sensitive data " * 1000)
+            original_size = path.stat().st_size
+            logs: list[str] = []
+            secure_delete(path, lambda text, level: logs.append(text))
+            self.assertFalse(path.exists())
+            self.assertTrue(any("Securely deleted" in l for l in logs))
+
+    def test_secure_delete_handles_large_file_chunked(self) -> None:
+        from extractorx.postprocess import secure_delete
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "large.bin"
+            path.write_bytes(b"\xff" * 200_000)
+            logs: list[str] = []
+            secure_delete(path, lambda text, level: logs.append(text))
+            self.assertFalse(path.exists())
+
+
+class UniquePathBoundTests(unittest.TestCase):
+    def test_unique_path_with_many_collisions(self) -> None:
+        from extractorx.postprocess import _unique_path
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "file.txt"
+            base.write_text("x")
+            result = _unique_path(base)
+            self.assertNotEqual(result, base)
+            self.assertTrue(result.name.startswith("file ("))
+
+
+class ArchiveMagicStatTests(unittest.TestCase):
+    def test_has_archive_magic_with_zip(self) -> None:
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test.zip"
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("readme.txt", "hello")
+            self.assertTrue(has_archive_magic(path))
+
+    def test_has_archive_magic_with_empty_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "empty.dat"
+            path.write_bytes(b"")
+            self.assertFalse(has_archive_magic(path))
+
+
 if __name__ == "__main__":
     unittest.main()

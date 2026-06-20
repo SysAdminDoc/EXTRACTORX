@@ -116,8 +116,12 @@ def secure_delete(path: Path, log: LogCallback) -> None:
     """Overwrite *path* with zeros before unlinking."""
     try:
         size = path.stat().st_size
+        chunk = b"\x00" * min(size, 65536)
         with path.open("r+b") as handle:
-            handle.write(b"\x00" * size)
+            written = 0
+            while written < size:
+                handle.write(chunk[:min(len(chunk), size - written)])
+                written += len(chunk)
             handle.flush()
             try:
                 os.fsync(handle.fileno())
@@ -320,9 +324,8 @@ def _rename_single_file(output: Path, archive: Path, log: LogCallback) -> None:
 def _unique_path(path: Path) -> Path:
     if not path.exists():
         return path
-    counter = 1
-    while True:
+    for counter in range(1, 10001):
         candidate = path.with_name(f"{path.stem} ({counter}){path.suffix}")
         if not candidate.exists():
             return candidate
-        counter += 1
+    return path.with_name(f"{path.stem} ({uuid4().hex[:8]}){path.suffix}")

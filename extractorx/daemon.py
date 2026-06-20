@@ -59,20 +59,22 @@ def run_daemon() -> int:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
+    pending: list[QueueItem] = []
     try:
         while not stop.is_set():
-            detected: list[QueueItem] = []
             while True:
                 try:
                     path = watch_queue.get_nowait()
                 except Empty:
                     break
                 if path.exists():
-                    detected.append(QueueItem.from_path(path))
+                    pending.append(QueueItem.from_path(path))
                     log.info("Detected: %s", path.name)
 
-            if detected and not service.active:
-                service.extract_items(detected, test_only=False)
+            if pending and not service.active:
+                batch = list(pending)
+                pending.clear()
+                service.extract_items(batch, test_only=False)
 
             while True:
                 try:

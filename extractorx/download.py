@@ -119,12 +119,11 @@ def _unique(path: Path) -> Path:
         return path
     stem = path.stem
     suffix = path.suffix
-    counter = 1
-    while True:
+    for counter in range(1, 10001):
         candidate = path.with_name(f"{stem} ({counter}){suffix}")
         if not candidate.exists():
             return candidate
-        counter += 1
+    return path.with_name(f"{stem} ({uuid4().hex[:8]}){suffix}")
 
 
 def check_for_updates(current_version: str, log: LogCallback | None = None) -> str | None:

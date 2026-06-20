@@ -7,6 +7,7 @@ in a different format using 7-Zip. Supports ZIP, 7z, and TAR output.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -86,7 +87,7 @@ def repack_archive(
             log_cb(f"Re-archiving as {fmt}...", "info")
 
         compress_cmd: list[str] = [
-            str(sevenzip_path), "a", str(output_path), f"{tmp}{chr(92)}*", f"-t{fmt}", "-y",
+            str(sevenzip_path), "a", str(output_path), os.path.join(str(tmp), "*"), f"-t{fmt}", "-y",
         ]
         result = subprocess.run(
             compress_cmd,

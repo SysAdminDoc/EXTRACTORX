@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re as _re
 import shutil
 import subprocess
 import ctypes
@@ -394,15 +395,11 @@ class ExtractionService:
         )
         use_hash_probe = bool(self.config.get("HashModePasswordProbe", True))
         encoding_setting = str(self.config.get("FilenameEncoding", "Auto"))
+        detected_encoding: str | None = None
         if encoding_setting == "Auto":
-            detected_cp = detect_zip_codepage(archive)
-            if detected_cp:
-                self._log(f"Auto-detected codepage {detected_cp} for {archive.name}", "info")
-                self.config["_detected_encoding"] = detected_cp
-            else:
-                self.config.pop("_detected_encoding", None)
-        else:
-            self.config.pop("_detected_encoding", None)
+            detected_encoding = detect_zip_codepage(archive)
+            if detected_encoding:
+                self._log(f"Auto-detected codepage {detected_encoding} for {archive.name}", "info")
 
         # When there are multiple password candidates and we are extracting (not
         # just testing), use a fast ``7z t`` probe to find the correct password
@@ -410,7 +407,7 @@ class ExtractionService:
         # 5-10x faster than full-extraction probing on large/solid archives.
         password_candidates = [p for p in attempts if p is not None]
         if use_hash_probe and not test_only and len(password_candidates) > 1:
-            winning_password = self._probe_password(archive, attempts)
+            winning_password = self._probe_password(archive, attempts, detected_encoding=detected_encoding)
             if winning_password is not None:
                 # Replace the attempt list with just the no-password probe and
                 # the winning password for the real extraction pass.
@@ -424,6 +421,7 @@ class ExtractionService:
                 return False, "Cancelled.", None
             success, text, code, cancelled = self._run_sevenzip(
                 archive, output, password, test_only=test_only, verbose=True,
+                detected_encoding=detected_encoding,
             )
             if cancelled:
                 return False, "Cancelled.", None
@@ -439,6 +437,7 @@ class ExtractionService:
 
     def _probe_password(
         self, archive: Path, attempts: list[str | None],
+        detected_encoding: str | None = None,
     ) -> str | None:
         """Use fast ``7z t`` to find the first working password.
 
@@ -452,6 +451,7 @@ class ExtractionService:
                 return None
             success, text, code, cancelled = self._run_sevenzip(
                 archive, archive.parent, password, test_only=True, verbose=False,
+                detected_encoding=detected_encoding,
             )
             if cancelled:
                 return None
@@ -469,16 +469,15 @@ class ExtractionService:
         *,
         test_only: bool = False,
         verbose: bool = True,
+        detected_encoding: str | None = None,
     ) -> tuple[bool, str, int, bool]:
         """Execute a single 7-Zip invocation.
 
         Returns ``(success, tail_text, exit_code, cancelled)``.
         """
         effective_encoding = str(self.config.get("FilenameEncoding", "Auto"))
-        if effective_encoding == "Auto":
-            detected = self.config.get("_detected_encoding")
-            if detected:
-                effective_encoding = str(detected)
+        if effective_encoding == "Auto" and detected_encoding:
+            effective_encoding = detected_encoding
         command = build_sevenzip_command(
             sevenzip_path=self.sevenzip_path,
             archive=archive,
@@ -658,8 +657,6 @@ def _safe_delete(path: Path) -> None:
     except OSError:
         pass
 
-
-import re as _re
 
 _CRC_PATTERNS = _re.compile(
     r"(?i)(CRC\s*Error|Data\s*Error|checksum\s*error|Headers\s*Error|"

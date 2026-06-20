@@ -190,7 +190,11 @@ def list_archive_contents(
                 current[key] = value.strip()
     if current.get("Path"):
         entries.append(current)
-    return [e for e in entries if e.get("Folder", "") != "+"]
+    archive_name_str = Path(str(archive)).name
+    return [
+        e for e in entries
+        if e.get("Folder", "") != "+" and e.get("Path", "") != archive_name_str
+    ]
 
 
 def overwrite_switch(mode: str) -> str:
