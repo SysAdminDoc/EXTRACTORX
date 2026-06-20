@@ -1,7 +1,8 @@
 <p align="center">
+  <img src="https://img.shields.io/badge/Python-Tkinter-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python"/>
   <img src="https://img.shields.io/badge/PowerShell-WPF-5391FE?style=for-the-badge&logo=powershell&logoColor=white" alt="PowerShell"/>
   <img src="https://img.shields.io/badge/7--Zip-Powered-00B4D8?style=for-the-badge" alt="7-Zip"/>
-  <img src="https://img.shields.io/badge/version-2.3.1-6BCB77?style=for-the-badge" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-2.5.0-6BCB77?style=for-the-badge" alt="Version"/>
   <img src="https://img.shields.io/badge/license-MIT-888899?style=for-the-badge" alt="License"/>
 </p>
 

@@ -82,6 +82,115 @@ if IS_WINDOWS:
     shell32.Shell_NotifyIconW.restype = wintypes.BOOL
 
 
+def detect_system_theme() -> str:
+    """Return ``'dark'`` or ``'light'`` based on the Windows personalization setting."""
+    if not IS_WINDOWS:
+        return "dark"
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            0,
+            winreg.KEY_READ,
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return "light" if value else "dark"
+    except OSError:
+        return "dark"
+
+
+def set_dark_titlebar(hwnd: int, dark: bool = True) -> None:
+    """Enable or disable the immersive dark title bar on Windows 10 20H1+ / Windows 11."""
+    if not IS_WINDOWS:
+        return
+    try:
+        dwmapi = ctypes.windll.dwmapi
+        value = ctypes.c_int(1 if dark else 0)
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
+    except (OSError, AttributeError):
+        pass
+
+
+# ITaskbarList3 COM interface for taskbar progress
+TBPF_NOPROGRESS = 0x0
+TBPF_NORMAL = 0x2
+TBPF_ERROR = 0x4
+TBPF_PAUSED = 0x8
+
+_CLSID_TaskbarList = b"\x44\xf3\xfd\x56\x6d\xfd\xd0\x11\x95\x8a\x00\x60\x97\xc9\xa0\x90"
+_IID_ITaskbarList3 = b"\x91\xfb\x1a\xea\x28\x9e\x86\x4b\x90\xe9\x9e\x9f\x8a\x5e\xef\xaf"
+
+
+class TaskbarProgress:
+    """Thin wrapper around ITaskbarList3 for taskbar progress indication."""
+
+    def __init__(self, hwnd: int) -> None:
+        self.hwnd = hwnd
+        self._taskbar = None
+        if IS_WINDOWS:
+            self._init_com()
+
+    def _init_com(self) -> None:
+        try:
+            ole32 = ctypes.windll.ole32
+            ole32.CoInitialize(None)
+            clsid = (ctypes.c_byte * 16)(*_CLSID_TaskbarList)
+            iid = (ctypes.c_byte * 16)(*_IID_ITaskbarList3)
+            p = ctypes.c_void_p()
+            hr = ole32.CoCreateInstance(
+                ctypes.byref(clsid), None, 1, ctypes.byref(iid), ctypes.byref(p)
+            )
+            if hr == 0 and p.value:
+                self._taskbar = p.value
+                # Call HrInit (vtable index 3)
+                vtable = ctypes.cast(
+                    ctypes.cast(p, ctypes.POINTER(ctypes.c_void_p))[0],
+                    ctypes.POINTER(ctypes.c_void_p),
+                )
+                hr_init = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p)(vtable[3])
+                hr_init(p)
+        except (OSError, AttributeError):
+            self._taskbar = None
+
+    def set_progress(self, current: int, total: int) -> None:
+        if not self._taskbar:
+            return
+        try:
+            vtable = ctypes.cast(
+                ctypes.cast(self._taskbar, ctypes.POINTER(ctypes.c_void_p))[0],
+                ctypes.POINTER(ctypes.c_void_p),
+            )
+            # SetProgressValue (vtable index 9)
+            func = ctypes.WINFUNCTYPE(
+                ctypes.HRESULT, ctypes.c_void_p, ctypes.c_void_p,
+                ctypes.c_ulonglong, ctypes.c_ulonglong,
+            )(vtable[9])
+            func(self._taskbar, self.hwnd, current, total)
+        except (OSError, ValueError):
+            pass
+
+    def set_state(self, state: int) -> None:
+        if not self._taskbar:
+            return
+        try:
+            vtable = ctypes.cast(
+                ctypes.cast(self._taskbar, ctypes.POINTER(ctypes.c_void_p))[0],
+                ctypes.POINTER(ctypes.c_void_p),
+            )
+            # SetProgressState (vtable index 10)
+            func = ctypes.WINFUNCTYPE(
+                ctypes.HRESULT, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int,
+            )(vtable[10])
+            func(self._taskbar, self.hwnd, state)
+        except (OSError, ValueError):
+            pass
+
+    def clear(self) -> None:
+        self.set_state(TBPF_NOPROGRESS)
+
+
 class WindowsShellBridge:
     def __init__(
         self,

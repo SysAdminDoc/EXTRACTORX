@@ -23,6 +23,7 @@ from .postprocess import (
     cleanup_failed_output,
     cleanup_success_output,
     open_destination,
+    propagate_motw,
     run_external_processors,
 )
 from .passwords import generate_wordlist
@@ -225,6 +226,8 @@ class ExtractionService:
                     output = cleanup_success_output(output, item.archive_path, self.config, self._log)
                     item.output_path = output
                     item.status = QueueStatus.DONE
+                    if bool(self.config.get("PropagateMotw", True)):
+                        propagate_motw(item.archive_path, output, self._log)
                     self.messages.put(
                         OperationMessage(
                             "item_done",
@@ -487,6 +490,11 @@ class ExtractionService:
                         del output_lines[:-tail_limit]
                     if verbose:
                         self.messages.put(OperationMessage("log", clean))
+                    pct_match = _re.match(r"(\d+)%", clean)
+                    if pct_match and verbose:
+                        self.messages.put(
+                            OperationMessage("sub_progress", payload={"percent": int(pct_match.group(1))})
+                        )
         finally:
             if cancelled:
                 _terminate_process(proc)

@@ -1011,5 +1011,30 @@ class SevenZipVersionTests(unittest.TestCase):
         self.assertEqual(MIN_SEVENZIP_LABEL, "26.01")
 
 
+class SystemThemeTests(unittest.TestCase):
+    def test_detect_returns_dark_or_light(self) -> None:
+        from extractorx.windows_integration import detect_system_theme
+        result = detect_system_theme()
+        self.assertIn(result, ("dark", "light"))
+
+
+class MotwConfigTests(unittest.TestCase):
+    def test_propagate_motw_default_true(self) -> None:
+        config = normalize_config(None)
+        self.assertTrue(config["PropagateMotw"])
+
+    def test_propagate_motw_normalizes_bool(self) -> None:
+        config = normalize_config({"PropagateMotw": "false"})
+        self.assertFalse(config["PropagateMotw"])
+
+
+class TaskbarProgressTests(unittest.TestCase):
+    def test_taskbar_constants_defined(self) -> None:
+        from extractorx.windows_integration import TBPF_NOPROGRESS, TBPF_NORMAL, TBPF_ERROR
+        self.assertEqual(TBPF_NOPROGRESS, 0)
+        self.assertEqual(TBPF_NORMAL, 2)
+        self.assertEqual(TBPF_ERROR, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

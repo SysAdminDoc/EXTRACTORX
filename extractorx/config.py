@@ -86,6 +86,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "SevenZipOverride": "",
     "MaxParallelExtractions": 1,
     "MaxDecompressionRatio": 1000,
+    "PropagateMotw": True,
     "HandlerAllowlist": [],
     "Bookmarks": [],
 }
@@ -230,6 +231,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         "UsePasswordSidecars",
         "HashModePasswordProbe",
         "WordlistGeneration",
+        "PropagateMotw",
     )
     for key in bool_keys:
         config[key] = _as_bool(config[key])

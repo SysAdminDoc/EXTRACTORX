@@ -16,6 +16,36 @@ from .archive import archive_name
 LogCallback = Callable[[str, str], None]
 
 
+def propagate_motw(archive: Path, output: Path, log: LogCallback) -> None:
+    """Copy the Zone.Identifier ADS from *archive* to all files under *output*.
+
+    When a user downloads an archive from the internet, Windows tags it with
+    a Zone.Identifier alternate data stream. Without propagation, extracted
+    files lose their MOTW and bypass SmartScreen protection.
+    """
+    if os.name != "nt":
+        return
+    zone_stream = str(archive) + ":Zone.Identifier"
+    try:
+        zone_data = Path(zone_stream).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    if not zone_data.strip():
+        return
+    propagated = 0
+    for path in output.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            target_stream = str(path) + ":Zone.Identifier"
+            Path(target_stream).write_text(zone_data, encoding="utf-8")
+            propagated += 1
+        except OSError:
+            continue
+    if propagated:
+        log(f"Propagated MOTW to {propagated} extracted file(s).", "info")
+
+
 def cleanup_success_output(output: Path, archive: Path, config: dict, log: LogCallback) -> Path:
     current = output
     mode = str(config.get("SmartExtract", "Auto"))

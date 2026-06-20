@@ -32,7 +32,14 @@ from .passwords import PasswordStore, classify_entropy
 from . import shell_integration
 from .themes import get_theme
 from .watcher import WatchService
-from .windows_integration import WindowsShellBridge
+from .windows_integration import (
+    TaskbarProgress,
+    TBPF_ERROR,
+    TBPF_NORMAL,
+    WindowsShellBridge,
+    detect_system_theme,
+    set_dark_titlebar,
+)
 
 
 LOG_LINE_CAP = 2000
@@ -86,10 +93,17 @@ class ExtractorXApp:
         self.root.minsize(850, 500)
         self.root.attributes("-topmost", bool(config.get("AlwaysOnTop", False)))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        if not config.get("_theme_set_by_user"):
+            system_theme = detect_system_theme()
+            if system_theme == "light" and config.get("Theme") == "Midnight":
+                config["Theme"] = "White"
         self.palette = get_theme(config.get("Theme"))
         self.style = ttk.Style(self.root)
         self._configure_style()
         self._build_ui()
+        self.root.update_idletasks()
+        is_dark = config.get("Theme") not in ("White",)
+        set_dark_titlebar(int(self.root.wm_frame(), 16), dark=is_dark)
         self.shell_bridge = WindowsShellBridge(
             self.root,
             on_files_dropped=self._handle_dropped_paths,
@@ -97,6 +111,8 @@ class ExtractorXApp:
             on_tray_menu=self._show_tray_menu,
         )
         self.shell_bridge.enable_drag_drop()
+        self.root.update_idletasks()
+        self.taskbar_progress = TaskbarProgress(int(self.root.wm_frame(), 16))
         self.root.bind("<Unmap>", self._handle_unmap)
         self._start_watchers()
         for item in startup_items or []:
@@ -112,6 +128,11 @@ class ExtractorXApp:
     def _apply_theme(self, theme_name: str) -> None:
         self.palette = get_theme(theme_name)
         self._configure_style()
+        try:
+            is_dark = theme_name not in ("White",)
+            set_dark_titlebar(int(self.root.wm_frame(), 16), dark=is_dark)
+        except (tk.TclError, ValueError):
+            pass
         p = self.palette
         if hasattr(self, "log"):
             self.log.configure(bg=p["chrome"], fg=p["text"], insertbackground=p["text"])
@@ -608,6 +629,12 @@ class ExtractorXApp:
         if message.text:
             level = "success" if message.type.endswith("_done") else message.level
             self._log(message.text, level)
+        if message.type == "sub_progress":
+            pct = int(message.payload.get("percent", 0) or 0)
+            self.progress.configure(value=pct)
+            self.taskbar_progress.set_state(TBPF_NORMAL)
+            self.taskbar_progress.set_progress(pct, 100)
+            return
         if message.type == "progress":
             total = int(message.payload.get("total", 0) or 0)
             current = int(message.payload.get("current", 0) or 0)
@@ -615,9 +642,17 @@ class ExtractorXApp:
             self.status_label.configure(text=message.text)
             if self.shell_bridge:
                 self.shell_bridge.update_tray_tip(f"ExtractorX - {message.text}")
+            self.taskbar_progress.set_state(TBPF_NORMAL)
+            self.taskbar_progress.set_progress(current, total)
         if message.type == "extract_done":
             self.progress.configure(value=100)
             self.status_label.configure(text="7-Zip ready" if self.sevenzip_path else "7-Zip not found")
+            failed = any(item.status == QueueStatus.FAILED for item in self.items.values())
+            if failed:
+                self.taskbar_progress.set_state(TBPF_ERROR)
+                self.taskbar_progress.set_progress(1, 1)
+            else:
+                self.taskbar_progress.clear()
             self._play_completion_sound()
             if self.password_retry_candidates:
                 self.root.after(250, self._prompt_password_retry)
@@ -1024,6 +1059,7 @@ class SettingsDialog:
         self.delete_broken_var = tk.BooleanVar(value=bool(self.config.get("DeleteBrokenFiles", False)))
         self.clear_done_var = tk.BooleanVar(value=bool(self.config.get("ClearListOnComplete", False)))
         self.close_done_var = tk.BooleanVar(value=bool(self.config.get("CloseOnComplete", False)))
+        self.motw_var = tk.BooleanVar(value=bool(self.config.get("PropagateMotw", True)))
         ttk.Label(process, text="Nested extraction depth").grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Spinbox(process, from_=1, to=50, textvariable=self.nested_depth_var, width=8).grid(row=0, column=1, sticky="w", pady=(0, 8))
         ttk.Checkbutton(process, text="Apply source cleanup to nested archives", variable=self.nested_post_var).grid(row=1, column=0, columnspan=3, sticky="w")
@@ -1037,8 +1073,9 @@ class SettingsDialog:
         ttk.Checkbutton(process, text="Remove duplicate archive-name folder", variable=self.remove_dupe_var).grid(row=6, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(process, text="Rename a single extracted file to the archive name", variable=self.rename_single_var).grid(row=7, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(process, text="Delete incomplete output after failure", variable=self.delete_broken_var).grid(row=8, column=0, columnspan=3, sticky="w")
-        ttk.Checkbutton(process, text="Clear successful items when a batch completes", variable=self.clear_done_var).grid(row=9, column=0, columnspan=3, sticky="w", pady=(12, 0))
-        ttk.Checkbutton(process, text="Close when the full batch succeeds", variable=self.close_done_var).grid(row=10, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(process, text="Propagate Mark-of-the-Web to extracted files", variable=self.motw_var).grid(row=9, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(process, text="Clear successful items when a batch completes", variable=self.clear_done_var).grid(row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ttk.Checkbutton(process, text="Close when the full batch succeeds", variable=self.close_done_var).grid(row=11, column=0, columnspan=3, sticky="w")
         process.columnconfigure(1, weight=1)
 
         monitor = ttk.Frame(notebook, padding=16)
@@ -1352,6 +1389,7 @@ class SettingsDialog:
         self.config["RemoveDuplicateFolder"] = self.remove_dupe_var.get()
         self.config["RenameSingleFile"] = self.rename_single_var.get()
         self.config["DeleteBrokenFiles"] = self.delete_broken_var.get()
+        self.config["PropagateMotw"] = self.motw_var.get()
         self.config["ClearListOnComplete"] = self.clear_done_var.get()
         self.config["CloseOnComplete"] = self.close_done_var.get()
         self.config["FileExclusions"] = self.exclusions_var.get()
