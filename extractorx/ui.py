@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from . import __version__
 from .archive import format_size, is_supported_archive, resolve_output_path
+from .repack import REPACK_FORMATS, repack_archive
 from .settings_ui import SettingsDialog, _ask_password_with_entropy, _mask_password
 from .sevenzip import list_archive_contents
 from .config import app_data_dir
@@ -270,6 +271,10 @@ class ExtractorXApp:
         self.queue_menu.add_command(label="Set Destination...", command=self._set_selected_destination)
         self.queue_menu.add_command(label="Open Destination", command=self._open_selected_destination)
         self.queue_menu.add_command(label="Preview Contents", command=self._preview_selected_contents)
+        convert_menu = tk.Menu(self.queue_menu, tearoff=False, bg=p["surface_2"], fg=p["text"], activebackground=p["selection"], activeforeground=p["text"])
+        for fmt_label in ("ZIP", "7z", "TAR"):
+            convert_menu.add_command(label=fmt_label, command=lambda f=fmt_label.lower(): self._convert_selected(f))
+        self.queue_menu.add_cascade(label="Convert to...", menu=convert_menu)
         self.queue_menu.add_command(label="Reveal Archive", command=self._reveal_selected_archive)
         self.queue_menu.add_command(label="Copy Archive Path", command=self._copy_selected_archive_path)
         self.queue_menu.add_command(label="Copy Destination Path", command=self._copy_selected_destination_path)
@@ -818,6 +823,31 @@ class ExtractorXApp:
             item.output_path = resolve_output_path(folder, item.archive_path)
             self._update_item(item)
         self._log(f"Destination override set for {len(selected)} item(s).", "success")
+
+    def _convert_selected(self, target_format: str) -> None:
+        items = self._selected_items()[:1]
+        if not items:
+            self._log("Select an archive to convert.", "warning")
+            return
+        item = items[0]
+        if not item.archive_path.exists():
+            self._log("Archive no longer exists.", "warning")
+            return
+        if not self.sevenzip_path:
+            self._log("7-Zip not found — cannot convert.", "error")
+            return
+        self._log(f"Converting {item.archive_path.name} to {target_format}...", "info")
+        import threading
+        def do_convert() -> None:
+            result = repack_archive(
+                self.sevenzip_path,
+                item.archive_path,
+                target_format,
+                log_cb=lambda text, level="info": self.root.after(0, lambda: self._log(text, level)),
+            )
+            if result:
+                self.root.after(0, lambda: self.add_item(QueueItem.from_path(result)))
+        threading.Thread(target=do_convert, name="ExtractorXRepack", daemon=True).start()
 
     def _preview_selected_contents(self) -> None:
         items = self._selected_items()[:1]

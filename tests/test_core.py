@@ -1126,5 +1126,25 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertGreater(_version_tuple("2.5.0"), _version_tuple("2.4.0"))
 
 
+class RepackTests(unittest.TestCase):
+    def test_repack_formats_defined(self) -> None:
+        from extractorx.repack import REPACK_FORMATS
+        self.assertIn("zip", REPACK_FORMATS)
+        self.assertIn("7z", REPACK_FORMATS)
+        self.assertIn("tar", REPACK_FORMATS)
+
+    def test_repack_rejects_unknown_format(self) -> None:
+        from extractorx.repack import repack_archive
+        errors: list[str] = []
+        result = repack_archive(
+            sevenzip_path=Path("7z"),
+            source=Path("test.zip"),
+            target_format="docx",
+            log_cb=lambda text, level: errors.append(text),
+        )
+        self.assertIsNone(result)
+        self.assertTrue(any("Unsupported" in e for e in errors))
+
+
 if __name__ == "__main__":
     unittest.main()
