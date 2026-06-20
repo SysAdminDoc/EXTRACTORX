@@ -251,6 +251,7 @@ class ExtractorXApp:
         self.log_menu.add_command(label="Copy", command=self._copy_log_selection)
         self.log_menu.add_command(label="Clear Log", command=self._clear_log)
         self.log_menu.add_command(label="Export History...", command=self._export_history)
+        self.log_menu.add_command(label="Export Log...", command=self._export_log)
         self.log_menu.add_separator()
         self.log_menu.add_command(label="Open Log Folder", command=self._open_log_folder)
         self.log.bind("<Button-3>", self._show_log_menu)
@@ -746,7 +747,9 @@ class ExtractorXApp:
         self.footer_label.configure(text=f"{prefix}{len(self.items)} item(s) | {counts[QueueStatus.QUEUED]} queued | {counts[QueueStatus.DONE]} done | {counts[QueueStatus.TEST_OK]} tested | {counts[QueueStatus.FAILED]} failed")
 
     def _log(self, text: str, level: str = "info") -> None:
-        self.log.insert("end", text + "\n", level if level in {"info", "success", "warning", "error"} else "info")
+        stamp = datetime.now().strftime("%H:%M:%S")
+        tag = level if level in {"info", "success", "warning", "error"} else "info"
+        self.log.insert("end", f"[{stamp}] {text}\n", tag)
         line_count = int(self.log.index("end-1c").split(".")[0])
         if line_count > LOG_LINE_CAP:
             self.log.delete("1.0", f"{line_count - LOG_LINE_CAP}.0")
@@ -1168,6 +1171,38 @@ class ExtractorXApp:
                     writer.writeheader()
                     writer.writerows(items_data)
             self._log(f"Exported {len(items_data)} item(s) to {target}", "success")
+        except OSError as exc:
+            messagebox.showerror("Export failed", str(exc), parent=self.root)
+
+    def _export_log(self) -> None:
+        content = self.log.get("1.0", "end").strip()
+        if not content:
+            self._log("Log is empty.", "warning")
+            return
+        target = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export log",
+            defaultextension=".txt",
+            filetypes=(("Text files", "*.txt"), ("CSV", "*.csv"), ("All", "*.*")),
+        )
+        if not target:
+            return
+        try:
+            if target.endswith(".csv"):
+                import csv
+                with open(target, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["timestamp", "level", "message"])
+                    for line in content.splitlines():
+                        if line.startswith("[") and "] " in line:
+                            ts = line[1:line.index("]")]
+                            rest = line[line.index("] ") + 2:]
+                            writer.writerow([ts, "", rest])
+                        else:
+                            writer.writerow(["", "", line])
+            else:
+                Path(target).write_text(content, encoding="utf-8")
+            self._log(f"Log exported to {target}", "success")
         except OSError as exc:
             messagebox.showerror("Export failed", str(exc), parent=self.root)
 
