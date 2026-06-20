@@ -1142,6 +1142,18 @@ class WatchFolderRulesTests(unittest.TestCase):
         self.assertEqual(config["WatchFolderRules"][0]["Folder"], "C:\\Downloads")
 
 
+class PluginTests(unittest.TestCase):
+    def test_discover_empty_dir(self) -> None:
+        from extractorx.plugins import discover_plugins, plugins_dir
+        directory = plugins_dir()
+        if not directory.exists():
+            self.assertEqual(discover_plugins(), [])
+
+    def test_run_plugins_no_crash_on_empty(self) -> None:
+        from extractorx.plugins import run_plugins
+        run_plugins(Path("test.zip"), Path("output"), {})
+
+
 class RepackTests(unittest.TestCase):
     def test_repack_formats_defined(self) -> None:
         from extractorx.repack import REPACK_FORMATS

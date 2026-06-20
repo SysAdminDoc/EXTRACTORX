@@ -18,6 +18,7 @@ log = logging.getLogger("extractorx.extractor")
 from .archive import archive_name, detect_zip_codepage, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
 from .hooks import run_hook
 from .models import OperationMessage, QueueItem, QueueStatus
+from .plugins import run_plugins
 from .postprocess import (
     apply_post_action,
     cleanup_failed_output,
@@ -248,6 +249,7 @@ class ExtractionService:
                     if bool(self.config.get("NestedExtraction", True)):
                         self._extract_nested(output, depth=1)
                     run_external_processors(self.config, item.archive_path, output, self._log)
+                    run_plugins(item.archive_path, output, self.config, self._log)
                     run_hook("PostExtractCommand", self.config, item.archive_path, output, self._log)
                     apply_post_action(item.archive_path, self.config, self._log)
                     if bool(self.config.get("OpenDestAfterExtract", False)):
