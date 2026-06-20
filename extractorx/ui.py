@@ -704,6 +704,8 @@ class ExtractorXApp:
             else:
                 self.taskbar_progress.clear()
             self._play_completion_sound()
+            if bool(message.payload.get("test_only")):
+                self.root.after(200, self._show_test_results)
             if self.password_retry_candidates:
                 self.root.after(250, self._prompt_password_retry)
             if bool(self.config.get("ClearListOnComplete", False)):
@@ -986,6 +988,46 @@ class ExtractorXApp:
             item.status = QueueStatus.QUEUED
             self._update_item(item)
         self._start_items(candidates, test_only=False)
+
+    def _show_test_results(self) -> None:
+        tested = [
+            item for item in self.items.values()
+            if item.status in {QueueStatus.TEST_OK, QueueStatus.FAILED} and item.test_detail
+        ]
+        if not tested:
+            return
+        window = tk.Toplevel(self.root)
+        window.title("Test Results")
+        window.transient(self.root)
+        window.geometry("650x400")
+        window.configure(bg=self.palette["bg"])
+        tree = ttk.Treeview(window, columns=("archive", "result", "detail"), show="headings", selectmode="extended")
+        tree.heading("archive", text="Archive")
+        tree.heading("result", text="Result")
+        tree.heading("detail", text="Detail")
+        tree.column("archive", width=250, anchor="w")
+        tree.column("result", width=80, anchor="w")
+        tree.column("detail", width=300, anchor="w")
+        scroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        ok_count = 0
+        fail_count = 0
+        for item in tested:
+            result = "OK" if item.status == QueueStatus.TEST_OK else "FAIL"
+            if item.status == QueueStatus.TEST_OK:
+                ok_count += 1
+            else:
+                fail_count += 1
+            tag = "done" if item.status == QueueStatus.TEST_OK else "failed"
+            tree.insert("", "end", values=(item.archive_path.name, result, item.test_detail), tags=(tag,))
+        tree.tag_configure("done", foreground=self.palette["ok"])
+        tree.tag_configure("failed", foreground=self.palette["error"])
+        footer = ttk.Frame(window, padding=(8, 4))
+        footer.pack(fill="x")
+        ttk.Label(footer, text=f"{ok_count} OK, {fail_count} failed", style="Muted.TLabel").pack(side="left")
+        ttk.Button(footer, text="Close", command=window.destroy).pack(side="right")
 
     def _on_close(self) -> None:
         self.closing = True
