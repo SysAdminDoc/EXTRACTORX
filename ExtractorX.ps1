@@ -55,12 +55,19 @@ if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
 # =====================================================================
 $script:AppName    = "ExtractorX"
 $script:AppVersion = "2.1.0"
-$script:AppDataDir = Join-Path $env:APPDATA $script:AppName
+$script:ScriptPath = $PSCommandPath
+if (-not $script:ScriptPath) { $script:ScriptPath = $MyInvocation.MyCommand.Definition }
+$script:IsPortable = $false
+$script:PortableFlag = Join-Path (Split-Path $script:ScriptPath -Parent) "portable.flag"
+if (Test-Path $script:PortableFlag) {
+    $script:IsPortable = $true
+    $script:AppDataDir = Join-Path (Split-Path $script:ScriptPath -Parent) "$($script:AppName).data"
+} else {
+    $script:AppDataDir = Join-Path $env:APPDATA $script:AppName
+}
 $script:ConfigPath = Join-Path $script:AppDataDir "config.json"
 $script:PasswordFile = Join-Path $script:AppDataDir "passwords.dat"
 $script:LogDir     = Join-Path $script:AppDataDir "logs"
-$script:ScriptPath = $PSCommandPath
-if (-not $script:ScriptPath) { $script:ScriptPath = $MyInvocation.MyCommand.Definition }
 $script:7zPath     = $null
 
 $script:ArchiveExtensions = @(
@@ -741,7 +748,7 @@ if ($TargetPath) { $script:Config.OutputPath = $TargetPath }
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="ExtractorX v2.1.0" Width="1100" Height="750" MinWidth="850" MinHeight="500"
+    Title="ExtractorX v2.1.0$(if ($script:IsPortable) { ' (portable)' })" Width="1100" Height="750" MinWidth="850" MinHeight="500"
     WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}" Foreground="{DynamicResource Tx}" AllowDrop="True"
     WindowStyle="None" AllowsTransparency="False"
     FontFamily="Segoe UI" TextOptions.TextRenderingMode="ClearType" TextOptions.TextFormattingMode="Display">
