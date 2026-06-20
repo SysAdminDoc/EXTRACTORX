@@ -31,6 +31,7 @@ class QueueItem:
     size_bytes: int = 0
     error: str = ""
     created_at: float = field(default_factory=time)
+    test_detail: str = ""
 
     @classmethod
     def from_path(cls, path: Path, output_override: str | None = None) -> "QueueItem":
