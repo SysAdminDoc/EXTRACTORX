@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import zipfile
 from uuid import uuid4
 from datetime import datetime
 from pathlib import Path
@@ -150,6 +151,63 @@ def resolve_output_path(template: str, archive: Path | str) -> Path:
         else:
             resolved = base
     return Path(resolved).expanduser()
+
+
+_CODEPAGE_CANDIDATES = [
+    ("cp932", "Japanese"),
+    ("cp936", "Simplified Chinese"),
+    ("cp949", "Korean"),
+    ("cp950", "Traditional Chinese"),
+    ("cp1251", "Cyrillic"),
+    ("cp1252", "Western European"),
+    ("cp437", "DOS/OEM"),
+]
+
+
+def detect_zip_codepage(path: Path) -> str | None:
+    """Heuristically detect the filename encoding of a ZIP archive.
+
+    Returns a codepage string (e.g. ``'cp932'``) if non-UTF-8 filenames are
+    detected and a likely encoding is found, or ``None`` if the archive is
+    UTF-8 or detection is inconclusive.
+    """
+    if not path.is_file() or path.suffix.lower() != ".zip":
+        return None
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            raw_names: list[bytes] = []
+            for info in zf.infolist():
+                if info.flag_bits & 0x800:
+                    continue
+                try:
+                    info.filename.encode("ascii")
+                except UnicodeEncodeError:
+                    pass
+                else:
+                    continue
+                raw = info.filename.encode("cp437", errors="replace")
+                raw_names.append(raw)
+    except (zipfile.BadZipFile, OSError):
+        return None
+    if not raw_names:
+        return None
+    best_cp = None
+    best_score = 0
+    for cp, _label in _CODEPAGE_CANDIDATES:
+        score = 0
+        for raw in raw_names:
+            try:
+                decoded = raw.decode(cp)
+                if all(c.isprintable() or c in (" ", "/", "\\") for c in decoded):
+                    score += 1
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if score > best_score:
+            best_score = score
+            best_cp = cp
+    if best_cp and best_score == len(raw_names):
+        return best_cp
+    return None
 
 
 def validate_extraction_paths(output: Path) -> list[Path]:

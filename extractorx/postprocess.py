@@ -112,6 +112,27 @@ def cleanup_failed_output(output: Path | None, config: dict, log: LogCallback) -
         log(f"Could not delete incomplete output: {exc}", "warning")
 
 
+def secure_delete(path: Path, log: LogCallback) -> None:
+    """Overwrite *path* with zeros before unlinking."""
+    try:
+        size = path.stat().st_size
+        with path.open("r+b") as handle:
+            handle.write(b"\x00" * size)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
+        path.unlink()
+        log(f"Securely deleted: {path.name}", "info")
+    except OSError as exc:
+        log(f"Secure delete failed for {path.name}: {exc}", "warning")
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
 def apply_post_action(archive: Path, config: dict, log: LogCallback) -> None:
     if not archive.exists():
         return
@@ -131,8 +152,11 @@ def apply_post_action(archive: Path, config: dict, log: LogCallback) -> None:
             shutil.move(str(archive), str(target))
             log(f"Moved source archive: {target}", "info")
         elif action == "Delete":
-            archive.unlink()
-            log(f"Deleted source archive: {archive.name}", "info")
+            if bool(config.get("SecureDelete", False)):
+                secure_delete(archive, log)
+            else:
+                archive.unlink()
+                log(f"Deleted source archive: {archive.name}", "info")
     except OSError as exc:
         log(f"Post-action failed for {archive.name}: {exc}", "warning")
 

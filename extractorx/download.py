@@ -127,6 +127,42 @@ def _unique(path: Path) -> Path:
         counter += 1
 
 
+def check_for_updates(current_version: str, log: LogCallback | None = None) -> str | None:
+    """Check GitHub for a newer release and return the tag if one exists.
+
+    Returns the newer version tag string, or ``None`` if the current version
+    is up to date or the check fails. Errors are silently swallowed — this
+    is best-effort and must never block the UI.
+    """
+    url = "https://api.github.com/repos/SysAdminDoc/ExtractorX/releases/latest"
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
+    try:
+        import json
+        with urllib.request.urlopen(request, timeout=10) as response:  # type: ignore[arg-type]
+            data = json.loads(response.read().decode("utf-8"))
+        tag = str(data.get("tag_name", "")).lstrip("vV")
+        if not tag:
+            return None
+        current = current_version.lstrip("vV")
+        if _version_tuple(tag) > _version_tuple(current):
+            if log:
+                log(f"Update available: v{tag} (current: v{current})", "info")
+            return tag
+    except Exception:
+        pass
+    return None
+
+
+def _version_tuple(version: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for part in version.split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            break
+    return tuple(parts)
+
+
 def looks_like_url(value: str) -> bool:
     parsed = urllib.parse.urlsplit(value)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)

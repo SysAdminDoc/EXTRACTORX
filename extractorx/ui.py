@@ -24,7 +24,7 @@ from .config import (
 )
 from .config import app_data_dir
 from .config import save_config
-from .download import looks_like_url
+from .download import check_for_updates, looks_like_url
 from .extractor import ExtractionService
 from .identify import identify
 from .models import OperationMessage, QueueItem, QueueStatus
@@ -538,6 +538,12 @@ class ExtractorXApp:
             self._test_archives()
         elif self.auto_extract_startup and self.items:
             self._extract()
+        import threading
+        threading.Thread(
+            target=lambda: check_for_updates(__version__, log=lambda text, level="info": self.root.after(0, lambda: self._log(text, level))),
+            name="ExtractorXUpdateCheck",
+            daemon=True,
+        ).start()
 
     def _start_watchers(self) -> None:
         if self.watch_service:
@@ -1060,6 +1066,7 @@ class SettingsDialog:
         self.clear_done_var = tk.BooleanVar(value=bool(self.config.get("ClearListOnComplete", False)))
         self.close_done_var = tk.BooleanVar(value=bool(self.config.get("CloseOnComplete", False)))
         self.motw_var = tk.BooleanVar(value=bool(self.config.get("PropagateMotw", True)))
+        self.secure_delete_var = tk.BooleanVar(value=bool(self.config.get("SecureDelete", False)))
         ttk.Label(process, text="Nested extraction depth").grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Spinbox(process, from_=1, to=50, textvariable=self.nested_depth_var, width=8).grid(row=0, column=1, sticky="w", pady=(0, 8))
         ttk.Checkbutton(process, text="Apply source cleanup to nested archives", variable=self.nested_post_var).grid(row=1, column=0, columnspan=3, sticky="w")
@@ -1074,8 +1081,9 @@ class SettingsDialog:
         ttk.Checkbutton(process, text="Rename a single extracted file to the archive name", variable=self.rename_single_var).grid(row=7, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(process, text="Delete incomplete output after failure", variable=self.delete_broken_var).grid(row=8, column=0, columnspan=3, sticky="w")
         ttk.Checkbutton(process, text="Propagate Mark-of-the-Web to extracted files", variable=self.motw_var).grid(row=9, column=0, columnspan=3, sticky="w")
-        ttk.Checkbutton(process, text="Clear successful items when a batch completes", variable=self.clear_done_var).grid(row=10, column=0, columnspan=3, sticky="w", pady=(12, 0))
-        ttk.Checkbutton(process, text="Close when the full batch succeeds", variable=self.close_done_var).grid(row=11, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(process, text="Secure delete (overwrite with zeros before removing)", variable=self.secure_delete_var).grid(row=10, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(process, text="Clear successful items when a batch completes", variable=self.clear_done_var).grid(row=11, column=0, columnspan=3, sticky="w", pady=(12, 0))
+        ttk.Checkbutton(process, text="Close when the full batch succeeds", variable=self.close_done_var).grid(row=12, column=0, columnspan=3, sticky="w")
         process.columnconfigure(1, weight=1)
 
         monitor = ttk.Frame(notebook, padding=16)
@@ -1194,6 +1202,15 @@ class SettingsDialog:
         self.decomp_ratio_var = tk.IntVar(value=int(self.config.get("MaxDecompressionRatio", 1000)))
         ttk.Spinbox(bomb_frame, from_=0, to=100000, textvariable=self.decomp_ratio_var, width=8).pack(side="left", padx=(8, 0))
         ttk.Label(bomb_frame, text="(0 = unlimited; warns on suspected zip bombs)", style="Muted.TLabel").pack(side="left", padx=(8, 0))
+        retry_frame = ttk.Frame(advanced)
+        retry_frame.pack(fill="x", pady=(0, 12))
+        ttk.Label(retry_frame, text="Retry failed extractions").pack(side="left")
+        self.retry_count_var = tk.IntVar(value=int(self.config.get("RetryCount", 0)))
+        ttk.Spinbox(retry_frame, from_=0, to=10, textvariable=self.retry_count_var, width=4).pack(side="left", padx=(8, 0))
+        ttk.Label(retry_frame, text="times, delay").pack(side="left", padx=(8, 0))
+        self.retry_delay_var = tk.IntVar(value=int(self.config.get("RetryDelaySeconds", 30)))
+        ttk.Spinbox(retry_frame, from_=5, to=600, textvariable=self.retry_delay_var, width=5).pack(side="left", padx=(4, 0))
+        ttk.Label(retry_frame, text="sec (0 retries = disabled)", style="Muted.TLabel").pack(side="left", padx=(8, 0))
         backend_frame = ttk.Frame(advanced)
         backend_frame.pack(fill="x", pady=(0, 12))
         ttk.Label(backend_frame, text="7-Zip override").pack(side="left")
@@ -1390,6 +1407,7 @@ class SettingsDialog:
         self.config["RenameSingleFile"] = self.rename_single_var.get()
         self.config["DeleteBrokenFiles"] = self.delete_broken_var.get()
         self.config["PropagateMotw"] = self.motw_var.get()
+        self.config["SecureDelete"] = self.secure_delete_var.get()
         self.config["ClearListOnComplete"] = self.clear_done_var.get()
         self.config["CloseOnComplete"] = self.close_done_var.get()
         self.config["FileExclusions"] = self.exclusions_var.get()
@@ -1403,6 +1421,8 @@ class SettingsDialog:
         self.config["SkipAfterFailedPasswords"] = int(self.skip_passwords_var.get() or 0)
         self.config["MaxParallelExtractions"] = int(self.parallel_var.get() or 1)
         self.config["MaxDecompressionRatio"] = int(self.decomp_ratio_var.get() or 1000)
+        self.config["RetryCount"] = int(self.retry_count_var.get() or 0)
+        self.config["RetryDelaySeconds"] = int(self.retry_delay_var.get() or 30)
         self.config["SevenZipOverride"] = self.sevenzip_override_var.get().strip()
         self.config["PreExtractCommand"] = self.pre_hook_var.get().strip()
         self.config["PostExtractCommand"] = self.post_hook_var.get().strip()

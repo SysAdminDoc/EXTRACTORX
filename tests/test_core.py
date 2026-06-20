@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from queue import Queue
 
-from extractorx.archive import archive_name, has_archive_magic, is_non_first_volume, resolve_output_path, validate_extraction_paths
+from extractorx.archive import archive_name, detect_zip_codepage, has_archive_magic, is_non_first_volume, resolve_output_path, validate_extraction_paths
 from extractorx.config import DEFAULT_CONFIG, normalize_config
 from extractorx.extractor import build_password_attempts
 from extractorx.postprocess import (
@@ -1028,12 +1028,58 @@ class MotwConfigTests(unittest.TestCase):
         self.assertFalse(config["PropagateMotw"])
 
 
+class CodepageDetectionTests(unittest.TestCase):
+    def test_returns_none_for_nonzip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test.7z"
+            path.write_bytes(b"\x37\x7a\xbc\xaf\x27\x1c")
+            self.assertIsNone(detect_zip_codepage(path))
+
+    def test_returns_none_for_utf8_zip(self) -> None:
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "test.zip"
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("readme.txt", "hello")
+                zf.writestr("data/output.csv", "a,b,c")
+            self.assertIsNone(detect_zip_codepage(path))
+
+    def test_returns_none_for_missing_file(self) -> None:
+        self.assertIsNone(detect_zip_codepage(Path("/nonexistent/test.zip")))
+
+
 class TaskbarProgressTests(unittest.TestCase):
     def test_taskbar_constants_defined(self) -> None:
         from extractorx.windows_integration import TBPF_NOPROGRESS, TBPF_NORMAL, TBPF_ERROR
         self.assertEqual(TBPF_NOPROGRESS, 0)
         self.assertEqual(TBPF_NORMAL, 2)
         self.assertEqual(TBPF_ERROR, 4)
+
+
+class RetryConfigTests(unittest.TestCase):
+    def test_retry_defaults(self) -> None:
+        config = normalize_config(None)
+        self.assertEqual(config["RetryCount"], 0)
+        self.assertEqual(config["RetryDelaySeconds"], 30)
+
+    def test_retry_clamped(self) -> None:
+        config = normalize_config({"RetryCount": 99, "RetryDelaySeconds": 9999})
+        self.assertEqual(config["RetryCount"], 10)
+        self.assertEqual(config["RetryDelaySeconds"], 600)
+
+
+class SecureDeleteConfigTests(unittest.TestCase):
+    def test_default_false(self) -> None:
+        config = normalize_config(None)
+        self.assertFalse(config["SecureDelete"])
+
+
+class AutoUpdateTests(unittest.TestCase):
+    def test_version_tuple_parsing(self) -> None:
+        from extractorx.download import _version_tuple
+        self.assertEqual(_version_tuple("2.5.0"), (2, 5, 0))
+        self.assertEqual(_version_tuple("10.1"), (10, 1))
+        self.assertGreater(_version_tuple("2.5.0"), _version_tuple("2.4.0"))
 
 
 if __name__ == "__main__":

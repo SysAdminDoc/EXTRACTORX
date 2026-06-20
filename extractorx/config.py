@@ -87,6 +87,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "MaxParallelExtractions": 1,
     "MaxDecompressionRatio": 1000,
     "PropagateMotw": True,
+    "RetryCount": 0,
+    "RetryDelaySeconds": 30,
+    "SecureDelete": False,
     "HandlerAllowlist": [],
     "Bookmarks": [],
 }
@@ -232,6 +235,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
         "HashModePasswordProbe",
         "WordlistGeneration",
         "PropagateMotw",
+        "SecureDelete",
     )
     for key in bool_keys:
         config[key] = _as_bool(config[key])
@@ -261,6 +265,8 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     config["SkipAfterFailedPasswords"] = _clamp_int(config["SkipAfterFailedPasswords"], 0, 0, 9999)
     config["WordlistMaxAttempts"] = _clamp_int(config["WordlistMaxAttempts"], 500, 10, 10000)
     config["MaxDecompressionRatio"] = _clamp_int(config["MaxDecompressionRatio"], 1000, 0, 100000)
+    config["RetryCount"] = _clamp_int(config["RetryCount"], 0, 0, 10)
+    config["RetryDelaySeconds"] = _clamp_int(config["RetryDelaySeconds"], 30, 5, 600)
 
     config["OutputPath"] = str(config["OutputPath"] or DEFAULT_CONFIG["OutputPath"])
     config["PostActionFolder"] = str(config["PostActionFolder"] or "")

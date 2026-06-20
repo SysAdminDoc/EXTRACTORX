@@ -15,7 +15,7 @@ from threading import Event, Lock, Thread
 
 log = logging.getLogger("extractorx.extractor")
 
-from .archive import archive_name, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
+from .archive import archive_name, detect_zip_codepage, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
 from .hooks import run_hook
 from .models import OperationMessage, QueueItem, QueueStatus
 from .postprocess import (
@@ -198,7 +198,16 @@ class ExtractionService:
                     payload={"test_only": test_only},
                 )
             )
-            success, text, password_used = self._try_extract(item.archive_path, output, test_only=test_only)
+            retry_max = int(self.config.get("RetryCount", 0) or 0) if not test_only else 0
+            retry_delay = int(self.config.get("RetryDelaySeconds", 30) or 30)
+            attempt = 0
+            while True:
+                success, text, password_used = self._try_extract(item.archive_path, output, test_only=test_only)
+                if success or attempt >= retry_max or self.stop_event.is_set():
+                    break
+                attempt += 1
+                self._log(f"Retry {attempt}/{retry_max} for {item.archive_path.name} in {retry_delay}s", "warning")
+                self.stop_event.wait(retry_delay)
             if success:
                 if password_used and bool(self.config.get("AssumeOnePassword", True)):
                     with self._password_lock:
@@ -380,6 +389,16 @@ class ExtractionService:
             wordlist_max=int(self.config.get("WordlistMaxAttempts", 500) or 500),
         )
         use_hash_probe = bool(self.config.get("HashModePasswordProbe", True))
+        encoding_setting = str(self.config.get("FilenameEncoding", "Auto"))
+        if encoding_setting == "Auto":
+            detected_cp = detect_zip_codepage(archive)
+            if detected_cp:
+                self._log(f"Auto-detected codepage {detected_cp} for {archive.name}", "info")
+                self.config["_detected_encoding"] = detected_cp
+            else:
+                self.config.pop("_detected_encoding", None)
+        else:
+            self.config.pop("_detected_encoding", None)
 
         # When there are multiple password candidates and we are extracting (not
         # just testing), use a fast ``7z t`` probe to find the correct password
@@ -451,6 +470,11 @@ class ExtractionService:
 
         Returns ``(success, tail_text, exit_code, cancelled)``.
         """
+        effective_encoding = str(self.config.get("FilenameEncoding", "Auto"))
+        if effective_encoding == "Auto":
+            detected = self.config.get("_detected_encoding")
+            if detected:
+                effective_encoding = str(detected)
         command = build_sevenzip_command(
             sevenzip_path=self.sevenzip_path,
             archive=archive,
@@ -460,7 +484,7 @@ class ExtractionService:
             inclusions=str(self.config.get("IncludeMasks", "")),
             password=password,
             test_only=test_only,
-            filename_encoding=str(self.config.get("FilenameEncoding", "Auto")),
+            filename_encoding=effective_encoding,
         )
         try:
             proc = subprocess.Popen(
