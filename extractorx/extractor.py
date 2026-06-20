@@ -15,7 +15,7 @@ from threading import Event, Lock, Thread
 
 log = logging.getLogger("extractorx.extractor")
 
-from .archive import archive_name, is_non_first_volume, is_supported_archive, resolve_output_path
+from .archive import archive_name, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
 from .hooks import run_hook
 from .models import OperationMessage, QueueItem, QueueStatus
 from .postprocess import (
@@ -27,7 +27,7 @@ from .postprocess import (
 )
 from .passwords import generate_wordlist
 from .scanner import scan_paths
-from .sevenzip import build_sevenzip_command, download_7zip
+from .sevenzip import build_sevenzip_command, check_7zip_version, download_7zip, MIN_SEVENZIP_LABEL
 
 
 class ExtractionService:
@@ -119,6 +119,13 @@ class ExtractionService:
                 self.messages.put(OperationMessage("extract_done", "Extraction stopped."))
                 return
 
+        if not check_7zip_version(self.sevenzip_path):
+            self._log(
+                f"WARNING: 7-Zip is below {MIN_SEVENZIP_LABEL}. "
+                f"Update to fix CVE-2025-11001 (symlink RCE) and CVE-2026-48095 (heap overflow).",
+                "warning",
+            )
+
         verb = "Testing" if test_only else "Extracting"
         total = len(items)
         self.messages.put(
@@ -197,6 +204,7 @@ class ExtractionService:
                         self.remembered_password = password_used
                 if test_only:
                     item.status = QueueStatus.TEST_OK
+                    item.test_detail = "Integrity OK"
                     self.messages.put(
                         OperationMessage(
                             "item_done",
@@ -206,6 +214,14 @@ class ExtractionService:
                         )
                     )
                 else:
+                    escaped = validate_extraction_paths(output)
+                    if escaped:
+                        for path in escaped[:5]:
+                            self._log(f"SECURITY: path escaped output dir: {path}", "error")
+                        self._log(
+                            f"SECURITY: {len(escaped)} file(s) written outside output directory — possible zip-slip attack.",
+                            "error",
+                        )
                     output = cleanup_success_output(output, item.archive_path, self.config, self._log)
                     item.output_path = output
                     item.status = QueueStatus.DONE
@@ -227,6 +243,8 @@ class ExtractionService:
             else:
                 item.status = QueueStatus.FAILED
                 item.error = text
+                if test_only:
+                    item.test_detail = _extract_crc_errors(text) or text
                 if not test_only:
                     cleanup_failed_output(item.output_path, self.config, self._log)
                     run_hook("OnFailureCommand", self.config, item.archive_path, output, self._log, exit_code=1)
@@ -315,6 +333,33 @@ class ExtractionService:
                 cleanup_failed_output(output, self.config, self._log)
                 self.messages.put(OperationMessage("log", f"Nested failed: {path.name}: {text}", level="error"))
 
+    def _check_decompression_ratio(self, archive: Path, output_text: str) -> str | None:
+        """Return an error message if the decompression ratio exceeds the configured limit."""
+        max_ratio = int(self.config.get("MaxDecompressionRatio", 1000) or 0)
+        if max_ratio <= 0:
+            return None
+        try:
+            archive_size = archive.stat().st_size
+        except OSError:
+            return None
+        if archive_size <= 0:
+            return None
+        extracted_size = 0
+        for line in output_text.splitlines():
+            match = _re.search(r"Size:\s+(\d+)", line)
+            if match:
+                extracted_size = max(extracted_size, int(match.group(1)))
+        if extracted_size <= 0:
+            return None
+        ratio = extracted_size / archive_size
+        if ratio > max_ratio:
+            return (
+                f"Decompression ratio {ratio:.0f}:1 exceeds limit {max_ratio}:1 "
+                f"({archive.name}: {archive_size} bytes -> {extracted_size} bytes). "
+                f"Possible zip bomb."
+            )
+        return None
+
     def _try_extract(self, archive: Path, output: Path, test_only: bool = False) -> tuple[bool, str, str | None]:
         with self._password_lock:
             remembered = self.remembered_password
@@ -357,6 +402,9 @@ class ExtractionService:
             if cancelled:
                 return False, "Cancelled.", None
             if code in {0, 1}:
+                bomb_msg = self._check_decompression_ratio(archive, text)
+                if bomb_msg and not test_only:
+                    self._log(f"SECURITY: {bomb_msg}", "error")
                 return True, text, password
             last_error = text or f"7-Zip exited with code {code}."
         if self.passwords or sidecar:
@@ -560,6 +608,30 @@ def _safe_delete(path: Path) -> None:
             shutil.rmtree(path)
     except OSError:
         pass
+
+
+import re as _re
+
+_CRC_PATTERNS = _re.compile(
+    r"(?i)(CRC\s*Error|Data\s*Error|checksum\s*error|Headers\s*Error|"
+    r"Unexpected\s*end\s*of\s*archive|Can\s*not\s*open\s*.*?as\s*archive|"
+    r"ERROR:\s*Data\s*Error|Sub\s*items\s*Errors)",
+)
+
+
+def _extract_crc_errors(output_text: str) -> str:
+    """Parse 7-Zip test output and return a summary of CRC/integrity errors.
+
+    If the output contains recognizable integrity-failure markers, they are
+    gathered into a short summary string. Returns an empty string when no
+    patterns match.
+    """
+    lines = output_text.strip().splitlines()
+    errors: list[str] = []
+    for line in lines:
+        if _CRC_PATTERNS.search(line):
+            errors.append(line.strip())
+    return "; ".join(errors[:10]) if errors else ""
 
 
 def _apply_thread_priority(priority: str) -> None:

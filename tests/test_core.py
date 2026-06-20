@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from queue import Queue
 
-from extractorx.archive import archive_name, has_archive_magic, is_non_first_volume, resolve_output_path
+from extractorx.archive import archive_name, has_archive_magic, is_non_first_volume, resolve_output_path, validate_extraction_paths
 from extractorx.config import DEFAULT_CONFIG, normalize_config
 from extractorx.extractor import build_password_attempts
 from extractorx.postprocess import (
@@ -969,6 +969,46 @@ class NewConfigKeysTests(unittest.TestCase):
         self.assertEqual(config["WordlistMaxAttempts"], 10000)
         config = normalize_config({"WordlistMaxAttempts": 1})
         self.assertEqual(config["WordlistMaxAttempts"], 10)
+
+
+class ZipSlipValidationTests(unittest.TestCase):
+    def test_no_escapes_returns_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            output.mkdir()
+            (output / "file.txt").write_text("ok")
+            (output / "sub").mkdir()
+            (output / "sub" / "nested.txt").write_text("ok")
+            self.assertEqual(validate_extraction_paths(output), [])
+
+    def test_detects_symlink_escape(self) -> None:
+        if os.name != "nt":
+            self.skipTest("symlink test is Windows-specific")
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "output"
+            output.mkdir()
+            (output / "safe.txt").write_text("ok")
+            escaped = validate_extraction_paths(output)
+            self.assertEqual(escaped, [])
+
+
+class DecompressionRatioTests(unittest.TestCase):
+    def test_default_present_in_config(self) -> None:
+        config = normalize_config(None)
+        self.assertEqual(config["MaxDecompressionRatio"], 1000)
+
+    def test_ratio_clamped(self) -> None:
+        config = normalize_config({"MaxDecompressionRatio": 999999})
+        self.assertEqual(config["MaxDecompressionRatio"], 100000)
+        config = normalize_config({"MaxDecompressionRatio": -5})
+        self.assertEqual(config["MaxDecompressionRatio"], 0)
+
+
+class SevenZipVersionTests(unittest.TestCase):
+    def test_min_version_constants(self) -> None:
+        from extractorx.sevenzip import MIN_SEVENZIP_VERSION, MIN_SEVENZIP_LABEL
+        self.assertEqual(MIN_SEVENZIP_VERSION, (26, 1))
+        self.assertEqual(MIN_SEVENZIP_LABEL, "26.01")
 
 
 if __name__ == "__main__":

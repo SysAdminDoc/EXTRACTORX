@@ -16,6 +16,46 @@ from .config import app_data_dir
 
 log = logging.getLogger("extractorx.sevenzip")
 
+MIN_SEVENZIP_VERSION = (26, 1)
+MIN_SEVENZIP_LABEL = "26.01"
+
+
+def parse_7zip_version(exe: Path) -> tuple[int, int] | None:
+    try:
+        result = subprocess.run(
+            [str(exe)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            check=False,
+        )
+        combined = result.stdout + result.stderr
+        import re
+        match = re.search(r"7-Zip.*?\b(\d+)\.(\d+)\b", combined)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def check_7zip_version(exe: Path) -> bool:
+    version = parse_7zip_version(exe)
+    if version is None:
+        log.warning("Could not determine 7-Zip version for %s", exe)
+        return True
+    if version < MIN_SEVENZIP_VERSION:
+        log.warning(
+            "7-Zip %d.%02d at %s is below minimum %s (CVE-2025-11001, CVE-2026-48095).",
+            version[0], version[1], exe, MIN_SEVENZIP_LABEL,
+        )
+        return False
+    log.info("7-Zip %d.%02d at %s", version[0], version[1], exe)
+    return True
+
 
 def find_7zip(override: str | Path | None = None) -> Path | None:
     if override:
@@ -83,7 +123,7 @@ def download_7zip() -> Path:
 
     extra = target_dir / "7z-extra.7z"
     try:
-        _atomic_download("https://www.7-zip.org/a/7z2408-extra.7z", extra)
+        _atomic_download("https://www.7-zip.org/a/7z2601-extra.7z", extra)
         subprocess_path = sevenz if sevenz.exists() else sevenzr
         subprocess.run(
             [str(subprocess_path), "x", str(extra), f"-o{target_dir}", "-y"],

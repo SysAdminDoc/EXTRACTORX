@@ -152,6 +152,30 @@ def resolve_output_path(template: str, archive: Path | str) -> Path:
     return Path(resolved).expanduser()
 
 
+def validate_extraction_paths(output: Path) -> list[Path]:
+    """Walk *output* and return any files that resolve outside it.
+
+    Defense-in-depth against zip-slip / symlink path traversal. Call after
+    7-Zip extraction completes to verify nothing escaped the output dir.
+    """
+    escaped: list[Path] = []
+    try:
+        canonical_root = output.resolve(strict=True)
+    except OSError:
+        return escaped
+    try:
+        for path in output.rglob("*"):
+            try:
+                canonical = path.resolve(strict=True)
+                if not str(canonical).startswith(str(canonical_root) + os.sep) and canonical != canonical_root:
+                    escaped.append(path)
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return escaped
+
+
 def format_size(size: int) -> str:
     units = ("B", "KB", "MB", "GB", "TB")
     value = float(max(0, size))

@@ -85,6 +85,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "OnFailureCommand": "",
     "SevenZipOverride": "",
     "MaxParallelExtractions": 1,
+    "MaxDecompressionRatio": 1000,
     "HandlerAllowlist": [],
     "Bookmarks": [],
 }
@@ -257,6 +258,7 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     config["MaxParallelExtractions"] = _clamp_int(config["MaxParallelExtractions"], 1, 1, 8)
     config["SkipAfterFailedPasswords"] = _clamp_int(config["SkipAfterFailedPasswords"], 0, 0, 9999)
     config["WordlistMaxAttempts"] = _clamp_int(config["WordlistMaxAttempts"], 500, 10, 10000)
+    config["MaxDecompressionRatio"] = _clamp_int(config["MaxDecompressionRatio"], 1000, 0, 100000)
 
     config["OutputPath"] = str(config["OutputPath"] or DEFAULT_CONFIG["OutputPath"])
     config["PostActionFolder"] = str(config["PostActionFolder"] or "")
