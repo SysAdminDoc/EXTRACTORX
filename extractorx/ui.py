@@ -276,6 +276,7 @@ class ExtractorXApp:
         for fmt_label in ("ZIP", "7z", "TAR"):
             convert_menu.add_command(label=fmt_label, command=lambda f=fmt_label.lower(): self._convert_selected(f))
         self.queue_menu.add_cascade(label="Convert to...", menu=convert_menu)
+        self.queue_menu.add_command(label="Hex View", command=self._hex_view_selected)
         self.queue_menu.add_command(label="Reveal Archive", command=self._reveal_selected_archive)
         self.queue_menu.add_command(label="Copy Archive Path", command=self._copy_selected_archive_path)
         self.queue_menu.add_command(label="Copy Destination Path", command=self._copy_selected_destination_path)
@@ -922,6 +923,43 @@ class ExtractorXApp:
         ttk.Checkbutton(controls, text="Flat view", variable=flat_var, command=lambda: populate(flat_var.get())).pack(side="left")
         ttk.Label(controls, text=f"{len(entries)} item(s)", style="Muted.TLabel").pack(side="right")
         self._log(f"Previewed {len(entries)} item(s) in {item.archive_path.name}.", "info")
+
+    def _hex_view_selected(self) -> None:
+        items = self._selected_items()[:1]
+        if not items:
+            self._log("Select an archive for hex view.", "warning")
+            return
+        self._show_hex_view(items[0].archive_path)
+
+    def _show_hex_view(self, file_path: Path) -> None:
+        if not file_path.exists():
+            self._log("File no longer exists.", "warning")
+            return
+        try:
+            data = file_path.read_bytes()[:4096]
+        except OSError as exc:
+            self._log(f"Could not read file: {exc}", "error")
+            return
+        window = tk.Toplevel(self.root)
+        window.title(f"Hex: {file_path.name}")
+        window.transient(self.root)
+        window.geometry("720x450")
+        window.configure(bg=self.palette["bg"])
+        text = tk.Text(window, bg=self.palette["chrome"], fg=self.palette["text"],
+                       insertbackground=self.palette["text"], relief="flat",
+                       wrap="none", font=("Consolas", 9))
+        scroll = ttk.Scrollbar(window, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=scroll.set)
+        text.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        for offset in range(0, len(data), 16):
+            chunk = data[offset:offset + 16]
+            hex_part = " ".join(f"{b:02X}" for b in chunk).ljust(48)
+            ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+            text.insert("end", f"{offset:08X}  {hex_part}  {ascii_part}\n")
+        if len(data) >= 4096:
+            text.insert("end", f"\n... (showing first 4096 bytes of {file_path.stat().st_size})")
+        text.configure(state="disabled")
 
     def _open_selected_destination(self) -> None:
         for item in self._selected_items()[:1]:
