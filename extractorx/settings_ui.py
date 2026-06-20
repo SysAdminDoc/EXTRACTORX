@@ -252,9 +252,18 @@ class SettingsDialog:
         ttk.Button(explorer_buttons, text="Install Menus", command=self._install_context_menu).pack(side="left", padx=(0, 8))
         ttk.Button(explorer_buttons, text="Remove Menus", command=self._remove_context_menu).pack(side="left")
         ttk.Label(explorer, text="File associations", style="Muted.TLabel").pack(anchor="w", pady=(18, 4))
+        current_assocs = set(str(ext).lower().lstrip(".") for ext in self.config.get("FileAssociations", []))
+        assoc_grid = ttk.Frame(explorer)
+        assoc_grid.pack(fill="x", pady=(0, 4))
+        self._assoc_vars: dict[str, tk.BooleanVar] = {}
+        common_exts = ["zip", "7z", "rar", "tar", "gz", "bz2", "xz", "zst", "iso", "cab"]
+        for i, ext in enumerate(common_exts):
+            var = tk.BooleanVar(value=ext in current_assocs)
+            self._assoc_vars[ext] = var
+            ttk.Checkbutton(assoc_grid, text=f".{ext}", variable=var, command=self._sync_assoc_text).grid(row=i // 5, column=i % 5, sticky="w", padx=4)
         self.file_assoc_var = tk.StringVar(value=";".join(str(ext) for ext in self.config.get("FileAssociations", [])))
         ttk.Entry(explorer, textvariable=self.file_assoc_var).pack(fill="x")
-        ttk.Label(explorer, text="Semicolon-separated extensions, for example .zip;.7z;.rar", style="Muted.TLabel").pack(anchor="w", pady=(4, 8))
+        ttk.Label(explorer, text="Toggle common formats above, or edit the full list directly", style="Muted.TLabel").pack(anchor="w", pady=(4, 8))
         assoc_buttons = ttk.Frame(explorer)
         assoc_buttons.pack(fill="x")
         ttk.Button(assoc_buttons, text="Register Associations", command=self._install_file_associations).pack(side="left", padx=(0, 8))
@@ -339,6 +348,19 @@ class SettingsDialog:
         ttk.Button(footer, text="Cancel", command=self.window.destroy).pack(side="right")
         ttk.Button(footer, text="Save Settings", style="Accent.TButton", command=self._save).pack(side="right", padx=(0, 8))
         ttk.Button(footer, text="Reset to Defaults", command=self._reset_defaults).pack(side="left")
+
+    def _sync_assoc_text(self) -> None:
+        current = set(
+            v.strip().lower().lstrip(".")
+            for v in re.split(r"[;,\s]+", self.file_assoc_var.get())
+            if v.strip()
+        )
+        for ext, var in self._assoc_vars.items():
+            if var.get():
+                current.add(ext)
+            else:
+                current.discard(ext)
+        self.file_assoc_var.set(";".join(f".{e}" for e in sorted(current) if e))
 
     def _add_watch_folder(self) -> None:
         folder = filedialog.askdirectory(parent=self.window, title="Choose watch folder")
