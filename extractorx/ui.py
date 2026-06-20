@@ -197,6 +197,7 @@ class ExtractorXApp:
         ttk.Button(toolbar, text="Clear All", command=self._clear_all).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Identify", command=self._identify_dialog).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Export Script", command=self._export_batch_script).pack(side="left", padx=(0, 8))
+        ttk.Button(toolbar, text="Diff", command=self._diff_archives).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Search", command=self._search_archives).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="About", command=self._show_about).pack(side="right", padx=(8, 0))
         ttk.Button(toolbar, text="Settings", command=self._settings).pack(side="right", padx=(0, 8))
@@ -523,6 +524,63 @@ class ExtractorXApp:
         self.config["Bookmarks"] = bookmarks
         save_config(self.config)
         self._log("Bookmark added.", "success")
+
+    def _diff_archives(self) -> None:
+        paths = filedialog.askopenfilenames(title="Select two archives to compare", parent=self.root)
+        if not paths or len(paths) != 2:
+            if paths and len(paths) != 2:
+                self._log("Select exactly two archives to compare.", "warning")
+            return
+        if not self.sevenzip_path:
+            self._log("7-Zip not found.", "error")
+            return
+        self._log(f"Comparing {Path(paths[0]).name} vs {Path(paths[1]).name}...", "info")
+        entries_a = list_archive_contents(self.sevenzip_path, paths[0])
+        entries_b = list_archive_contents(self.sevenzip_path, paths[1])
+        set_a = {e["Path"]: e.get("Size", "") for e in entries_a}
+        set_b = {e["Path"]: e.get("Size", "") for e in entries_b}
+        all_paths = sorted(set(set_a) | set(set_b))
+        window = tk.Toplevel(self.root)
+        window.title(f"Diff: {Path(paths[0]).name} vs {Path(paths[1]).name}")
+        window.transient(self.root)
+        window.geometry("750x500")
+        window.configure(bg=self.palette["bg"])
+        tree = ttk.Treeview(window, columns=("path", "status", "size_a", "size_b"), show="headings")
+        tree.heading("path", text="Path")
+        tree.heading("status", text="Status")
+        tree.heading("size_a", text=Path(paths[0]).name)
+        tree.heading("size_b", text=Path(paths[1]).name)
+        tree.column("path", width=350, anchor="w")
+        tree.column("status", width=100, anchor="w")
+        tree.column("size_a", width=100, anchor="e")
+        tree.column("size_b", width=100, anchor="e")
+        scroll = ttk.Scrollbar(window, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        tree.tag_configure("added", foreground=self.palette["ok"])
+        tree.tag_configure("removed", foreground=self.palette["error"])
+        tree.tag_configure("changed", foreground=self.palette["warn"])
+        added = removed = changed = same = 0
+        for p in all_paths:
+            in_a = p in set_a
+            in_b = p in set_b
+            if in_a and not in_b:
+                tree.insert("", "end", values=(p, "Removed", set_a[p], ""), tags=("removed",))
+                removed += 1
+            elif in_b and not in_a:
+                tree.insert("", "end", values=(p, "Added", "", set_b[p]), tags=("added",))
+                added += 1
+            elif set_a[p] != set_b[p]:
+                tree.insert("", "end", values=(p, "Changed", set_a[p], set_b[p]), tags=("changed",))
+                changed += 1
+            else:
+                same += 1
+        footer = ttk.Frame(window, padding=(8, 4))
+        footer.pack(fill="x")
+        ttk.Label(footer, text=f"{added} added, {removed} removed, {changed} changed, {same} unchanged", style="Muted.TLabel").pack(side="left")
+        ttk.Button(footer, text="Close", command=window.destroy).pack(side="right")
+        self._log(f"Diff: {added} added, {removed} removed, {changed} changed.", "info")
 
     def _search_archives(self) -> None:
         if not self.items:
