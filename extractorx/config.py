@@ -57,6 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "PasswordTimeout": 45,
     "FileExclusions": "Thumbs.db;desktop.ini;.DS_Store",
     "WatchFolders": [],
+    "WatchFolderRules": [],
     "WatchAutoExtract": True,
     "CtxEnabled": False,
     "CtxGrouped": True,
@@ -280,6 +281,17 @@ def normalize_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     config["SevenZipOverride"] = str(config["SevenZipOverride"] or "")
 
     config["WatchFolders"] = [str(item) for item in _as_list(config["WatchFolders"]) if str(item).strip()]
+    watch_rules: list[dict[str, str]] = []
+    for entry in _as_list(config["WatchFolderRules"]):
+        if isinstance(entry, dict):
+            folder = str(entry.get("Folder", "")).strip()
+            if folder:
+                watch_rules.append({
+                    "Folder": folder,
+                    "OutputPath": str(entry.get("OutputPath", "")).strip(),
+                    "PostAction": str(entry.get("PostAction", "")).strip(),
+                })
+    config["WatchFolderRules"] = watch_rules
     config["FileAssociations"] = [str(item) for item in _as_list(config["FileAssociations"]) if str(item).strip()]
     pw_rules: list[dict[str, object]] = []
     for entry in _as_list(config["PasswordRules"]):

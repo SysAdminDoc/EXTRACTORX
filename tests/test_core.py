@@ -1126,6 +1126,22 @@ class AutoUpdateTests(unittest.TestCase):
         self.assertGreater(_version_tuple("2.5.0"), _version_tuple("2.4.0"))
 
 
+class WatchFolderRulesTests(unittest.TestCase):
+    def test_default_empty(self) -> None:
+        config = normalize_config(None)
+        self.assertEqual(config["WatchFolderRules"], [])
+
+    def test_normalizes_rules(self) -> None:
+        config = normalize_config({
+            "WatchFolderRules": [
+                {"Folder": "C:\\Downloads", "OutputPath": "D:\\Extracted", "PostAction": "Recycle"},
+                {"Folder": "", "OutputPath": "bad"},
+            ]
+        })
+        self.assertEqual(len(config["WatchFolderRules"]), 1)
+        self.assertEqual(config["WatchFolderRules"][0]["Folder"], "C:\\Downloads")
+
+
 class RepackTests(unittest.TestCase):
     def test_repack_formats_defined(self) -> None:
         from extractorx.repack import REPACK_FORMATS

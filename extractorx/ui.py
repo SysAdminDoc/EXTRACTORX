@@ -598,6 +598,22 @@ class ExtractorXApp:
         if not self.closing:
             self.root.after(100, self._pump_messages)
 
+    def _watch_rule_output(self, archive_path: Path) -> str | None:
+        for rule in self.config.get("WatchFolderRules", []) or []:
+            folder = str(rule.get("Folder", "")).strip()
+            if not folder:
+                continue
+            try:
+                rule_folder = Path(folder).resolve()
+                archive_parent = archive_path.parent.resolve()
+                if archive_parent == rule_folder or str(archive_parent).startswith(str(rule_folder) + os.sep):
+                    output_template = rule.get("OutputPath", "")
+                    if output_template:
+                        return str(resolve_output_path(output_template, archive_path))
+            except OSError:
+                continue
+        return None
+
     def _pump_watch_queue(self) -> None:
         detected: list[QueueItem] = []
         while True:
@@ -612,7 +628,8 @@ class ExtractorXApp:
             if not is_supported_archive(path, bool(self.config.get("DeepArchiveDetection", True))):
                 self._log(f"Skipped watched file (not an archive): {path.name}", "warning")
                 continue
-            item = QueueItem.from_path(path)
+            output_override = self._watch_rule_output(path)
+            item = QueueItem.from_path(path, output_override=output_override)
             self.add_item(item)
             self._log(f"Detected watched archive: {path.name}", "success")
             detected.append(item)
