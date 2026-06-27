@@ -246,8 +246,11 @@ def _is_reparse_point(path: Path) -> bool:
     """Check if *path* is a Windows reparse point (junction, symlink, etc.)."""
     try:
         import ctypes
-        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
-        return attrs != -1 and bool(attrs & 0x0400)
+        from ctypes import wintypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetFileAttributesW.restype = wintypes.DWORD
+        attrs = kernel32.GetFileAttributesW(str(path))
+        return attrs != 0xFFFFFFFF and bool(attrs & 0x0400)
     except (OSError, AttributeError):
         return False
 

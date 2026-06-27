@@ -254,29 +254,29 @@ def run_external_processors(config: dict, archive: Path, output: Path, log: LogC
             log(f"External processor failed for {archive.name}: {exc}", "warning")
 
 
-def expand_processor_command(template: str, archive: Path, output: Path) -> str:
-    """Substitute archive/destination tokens into an external-processor command.
+def expand_processor_command(template: str, archive: Path, output: Path) -> list[str]:
+    """Substitute archive/destination tokens and split into a command list.
 
-    Values are wrapped in double quotes and any embedded double quotes are
-    escaped so paths with spaces or ``&`` / ``|`` meta-characters survive the
-    trip through ``cmd.exe`` with ``shell=True``. User-supplied quotes around
-    a token are absorbed so ``"{ArchivePath}"`` and ``{ArchivePath}`` behave
-    identically.
+    Returns a list suitable for ``subprocess.run()`` without ``shell=True``.
+    Tokens are replaced with raw values and the result is split using
+    ``shlex`` so paths with spaces, ``&``, ``|``, and other metacharacters
+    are safely isolated as individual list elements.
     """
-
-    def quote(value: str) -> str:
-        return '"' + value.replace('"', '""') + '"'
+    import shlex
 
     replacements = {
-        "{ArchivePath}": quote(str(archive)),
-        "{Destination}": quote(str(output)),
-        "{Output}": quote(str(output)),
-        "{ArchiveName}": quote(archive_name(archive)),
+        "{ArchivePath}": str(archive),
+        "{Destination}": str(output),
+        "{Output}": str(output),
+        "{ArchiveName}": archive_name(archive),
     }
     result = template
     for token, value in replacements.items():
-        result = result.replace(f'"{token}"', value).replace(token, value)
-    return result
+        result = result.replace(f'"{token}"', f'"{value}"').replace(token, f'"{value}"')
+    try:
+        return shlex.split(result, posix=False)
+    except ValueError:
+        return [result]
 
 
 def recycle_path(path: Path) -> None:

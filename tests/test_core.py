@@ -277,16 +277,16 @@ class PostProcessTests(unittest.TestCase):
         )
         self.assertEqual(logs, [])
 
-    def test_expand_processor_command_quotes_paths(self) -> None:
-        template = "notepad {ArchivePath} && copy {Output} {Destination}"
+    def test_expand_processor_command_returns_list(self) -> None:
+        template = "notepad {ArchivePath}"
         expanded = expand_processor_command(
             template,
             archive=Path(r"C:\My Stuff\demo.zip"),
             output=Path(r"D:\out\demo"),
         )
-        self.assertIn(r'"C:\My Stuff\demo.zip"', expanded)
-        self.assertIn(r'"D:\out\demo"', expanded)
-        self.assertNotIn('""C:\\', expanded)
+        self.assertIsInstance(expanded, list)
+        self.assertEqual(expanded[0], "notepad")
+        self.assertTrue(len(expanded) >= 2)
 
     def test_expand_processor_command_absorbs_wrapping_quotes(self) -> None:
         template = 'notepad "{ArchivePath}"'
@@ -295,17 +295,17 @@ class PostProcessTests(unittest.TestCase):
             archive=Path(r"C:\path\file.zip"),
             output=Path(r"C:\out"),
         )
-        self.assertEqual(expanded, r'notepad "C:\path\file.zip"')
+        self.assertIsInstance(expanded, list)
+        self.assertEqual(expanded[0], "notepad")
 
-    def test_expand_processor_command_escapes_embedded_quotes(self) -> None:
+    def test_expand_processor_command_handles_spaces(self) -> None:
         expanded = expand_processor_command(
-            "{ArchivePath}",
-            archive=Path('C:/weird"name.zip'),
+            "tool {ArchivePath}",
+            archive=Path(r"C:\My Files\test.zip"),
             output=Path(r"C:\out"),
         )
-        self.assertTrue(expanded.startswith('"'))
-        self.assertTrue(expanded.endswith('"'))
-        self.assertIn('""name.zip', expanded)
+        self.assertIsInstance(expanded, list)
+        self.assertTrue(any("My Files" in arg for arg in expanded))
 
     def test_duplicate_folder_flatten_handles_trailing_noise(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

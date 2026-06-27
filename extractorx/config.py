@@ -95,6 +95,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "WebhookUrl": "",
     "PasswordRules": [],
     "HandlerAllowlist": [],
+    "PluginAllowlist": [],
     "Bookmarks": [],
 }
 

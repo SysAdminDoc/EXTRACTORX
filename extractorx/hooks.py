@@ -1,8 +1,8 @@
 """Lifecycle hook dispatch.
 
 Runs user-configured shell commands for pre-extract, post-extract, and
-on-failure events. Commands use the same token syntax as external processors
-with values double-quoted for safe ``CreateProcess`` parsing.
+on-failure events. Commands use the same token syntax as external processors.
+Command strings are split into argument lists for safe subprocess execution.
 """
 
 from __future__ import annotations
@@ -39,11 +39,11 @@ def run_hook(
     template = str(config.get(hook_name, "") or "").strip()
     if not template:
         return
-    expanded = expand_processor_command(template, archive=archive, output=output)
-    expanded = expanded.replace("{ExitCode}", str(exit_code))
+    template = template.replace("{ExitCode}", str(exit_code))
+    command = expand_processor_command(template, archive=archive, output=output)
     try:
         result = subprocess.run(
-            expanded,
+            command,
             capture_output=True,
             text=True,
             encoding="utf-8",
