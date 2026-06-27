@@ -127,11 +127,16 @@ class ExtractionService:
                 return
 
         if not check_7zip_version(self.sevenzip_path):
-            self._log(
-                f"WARNING: 7-Zip is below {MIN_SEVENZIP_LABEL}. "
-                f"Update to fix CVE-2025-11001 (symlink RCE) and CVE-2026-48095 (heap overflow).",
-                "warning",
+            msg = (
+                f"7-Zip is below {MIN_SEVENZIP_LABEL}. "
+                f"Update to fix CVE-2025-11001 (symlink RCE) and CVE-2026-48095 (heap overflow). "
+                f"Download from https://www.7-zip.org/"
             )
+            if bool(self.config.get("BlockOutdated7Zip", True)):
+                self.messages.put(OperationMessage("error", msg, level="error"))
+                self.messages.put(OperationMessage("extract_done", "Extraction blocked (outdated 7-Zip)."))
+                return
+            self._log(f"WARNING: {msg}", "warning")
 
         verb = "Testing" if test_only else "Extracting"
         total = len(items)

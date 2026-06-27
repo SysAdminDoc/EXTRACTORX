@@ -93,6 +93,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "SecureDelete": False,
     "DiskSpaceCheck": True,
     "MaxMemoryGB": 0,
+    "BlockOutdated7Zip": True,
     "WebhookUrl": "",
     "PasswordRules": [],
     "HandlerAllowlist": [],
