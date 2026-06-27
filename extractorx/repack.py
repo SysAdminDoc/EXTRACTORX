@@ -14,6 +14,9 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from .archive import validate_extraction_paths
+from .postprocess import sanitize_extracted_filenames
+
 log = logging.getLogger("extractorx.repack")
 
 REPACK_FORMATS = {
@@ -82,6 +85,30 @@ def repack_archive(
                 tail = (result.stdout or result.stderr or "").strip().splitlines()[-1:]
                 log_cb(f"Extraction failed: {tail[0] if tail else f'exit code {result.returncode}'}", "error")
             return None
+
+        _log_noop: LogCallback = log_cb or (lambda _msg, _lvl: None)
+        sanitize_extracted_filenames(tmp, _log_noop)
+        escaped = validate_extraction_paths(tmp)
+        if escaped:
+            for esc_path in escaped[:5]:
+                _log_noop(f"SECURITY: repack path escaped temp dir: {esc_path}", "error")
+            _log_noop(
+                f"SECURITY: {len(escaped)} file(s) escaped temp directory during repack — aborting.",
+                "error",
+            )
+            return None
+
+        archive_size = source.stat().st_size if source.exists() else 0
+        if archive_size > 0:
+            extracted_size = sum(f.stat().st_size for f in tmp.rglob("*") if f.is_file())
+            ratio = extracted_size / archive_size
+            max_ratio = 1000
+            if ratio > max_ratio:
+                _log_noop(
+                    f"SECURITY: decompression ratio {ratio:.0f}:1 exceeds {max_ratio}:1 during repack — aborting.",
+                    "error",
+                )
+                return None
 
         if log_cb:
             log_cb(f"Re-archiving as {fmt}...", "info")

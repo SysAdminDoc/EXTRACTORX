@@ -1008,8 +1008,8 @@ class DecompressionRatioTests(unittest.TestCase):
 class SevenZipVersionTests(unittest.TestCase):
     def test_min_version_constants(self) -> None:
         from extractorx.sevenzip import MIN_SEVENZIP_VERSION, MIN_SEVENZIP_LABEL
-        self.assertEqual(MIN_SEVENZIP_VERSION, (26, 1))
-        self.assertEqual(MIN_SEVENZIP_LABEL, "26.01")
+        self.assertEqual(MIN_SEVENZIP_VERSION, (26, 2))
+        self.assertEqual(MIN_SEVENZIP_LABEL, "26.02")
 
 
 class SystemThemeTests(unittest.TestCase):

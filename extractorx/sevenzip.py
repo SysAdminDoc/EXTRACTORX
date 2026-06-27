@@ -17,8 +17,8 @@ from .config import app_data_dir
 
 log = logging.getLogger("extractorx.sevenzip")
 
-MIN_SEVENZIP_VERSION = (26, 1)
-MIN_SEVENZIP_LABEL = "26.01"
+MIN_SEVENZIP_VERSION = (26, 2)
+MIN_SEVENZIP_LABEL = "26.02"
 
 
 def parse_7zip_version(exe: Path) -> tuple[int, int] | None:
@@ -125,7 +125,10 @@ def download_7zip() -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     sevenzr = target_dir / "7zr.exe"
     sevenz = target_dir / "7z.exe"
-    _atomic_download("https://www.7-zip.org/a/7zr.exe", sevenzr)
+    _atomic_download(
+        "https://www.7-zip.org/a/7zr.exe", sevenzr,
+        expected_sha256="56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72",
+    )
     try:
         shutil.copyfile(sevenzr, sevenz)
     except OSError as exc:
@@ -134,8 +137,8 @@ def download_7zip() -> Path:
     extra = target_dir / "7z-extra.7z"
     try:
         _atomic_download(
-            "https://www.7-zip.org/a/7z2601-extra.7z", extra,
-            expected_sha256="05cda5442075a7c6ce246ca1bbb9b1f1d6f1787a9559156f9b8b2dad29a86971",
+            "https://www.7-zip.org/a/7z2602-extra.7z", extra,
+            expected_sha256="081df9e9311dfd9c9e0e98c1c80180b99bb51e4cb24156b5f3057fe3c259d70a",
         )
         subprocess_path = sevenz if sevenz.exists() else sevenzr
         subprocess.run(

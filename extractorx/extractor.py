@@ -733,7 +733,12 @@ def _send_webhook(config: dict, payload: dict) -> None:
         return
     try:
         import json
+        import urllib.parse
         import urllib.request
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            log.warning("Webhook URL rejected (scheme %r not http/https): %s", parsed.scheme, url)
+            return
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
         urllib.request.urlopen(req, timeout=10)  # type: ignore[arg-type]
