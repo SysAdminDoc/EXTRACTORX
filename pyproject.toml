@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "extractorx"
-version = "2.5.0"
+version = "2.6.0"
 description = "Bulk archive extraction for Windows with queueing, nested extraction, password cycling, and watch folders"
 readme = "README.md"
 license = "MIT"
