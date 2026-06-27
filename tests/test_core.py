@@ -12,6 +12,7 @@ from queue import Queue
 from extractorx.archive import archive_name, detect_zip_codepage, has_archive_magic, is_non_first_volume, resolve_output_path, validate_extraction_paths
 from extractorx.config import DEFAULT_CONFIG, normalize_config
 from extractorx.extractor import build_password_attempts
+from extractorx.models import QueueItem, QueueStatus
 from extractorx.postprocess import (
     apply_post_action,
     cleanup_failed_output,
@@ -1221,6 +1222,130 @@ class ArchiveMagicStatTests(unittest.TestCase):
             path = Path(tmp) / "empty.dat"
             path.write_bytes(b"")
             self.assertFalse(has_archive_magic(path))
+
+
+class ThemePaletteCompletenessTests(unittest.TestCase):
+    def test_all_themes_have_same_keys(self) -> None:
+        from extractorx.themes import THEMES
+        reference_keys = set(next(iter(THEMES.values())).keys())
+        for name, palette in THEMES.items():
+            self.assertEqual(set(palette.keys()), reference_keys, f"Theme '{name}' has mismatched keys")
+
+    def test_all_themes_exist(self) -> None:
+        from extractorx.themes import THEMES
+        self.assertGreaterEqual(len(THEMES), 5)
+        for name in ("Midnight", "Graphite", "Ocean", "White", "HighContrast"):
+            self.assertIn(name, THEMES)
+
+    def test_get_theme_fallback(self) -> None:
+        from extractorx.themes import get_theme
+        self.assertEqual(get_theme(None), get_theme("Midnight"))
+        self.assertEqual(get_theme("nonexistent"), get_theme("Midnight"))
+
+
+class GuiLogicFunctionTests(unittest.TestCase):
+    def test_status_tag_working(self) -> None:
+        from extractorx.ui import ExtractorXApp
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.EXTRACTING), "working")
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.TESTING), "working")
+
+    def test_status_tag_done(self) -> None:
+        from extractorx.ui import ExtractorXApp
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.DONE), "done")
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.TEST_OK), "done")
+
+    def test_status_tag_failed(self) -> None:
+        from extractorx.ui import ExtractorXApp
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.FAILED), "failed")
+
+    def test_status_tag_queued(self) -> None:
+        from extractorx.ui import ExtractorXApp
+        self.assertEqual(ExtractorXApp._status_tag(QueueStatus.QUEUED), "queued")
+
+    def test_looks_like_password_failure(self) -> None:
+        from extractorx.ui import _looks_like_password_failure
+        self.assertTrue(_looks_like_password_failure("Wrong password"))
+        self.assertTrue(_looks_like_password_failure("file is encrypted"))
+        self.assertTrue(_looks_like_password_failure("Data Error: bad password"))
+
+    def test_looks_like_password_failure_negative(self) -> None:
+        from extractorx.ui import _looks_like_password_failure
+        self.assertFalse(_looks_like_password_failure("Everything is fine"))
+        self.assertFalse(_looks_like_password_failure("CRC Error"))
+
+    def test_cmd_quote(self) -> None:
+        from extractorx.ui import _cmd_quote
+        self.assertEqual(_cmd_quote("simple"), '"simple"')
+        self.assertEqual(_cmd_quote('has "quotes"'), '"has ""quotes"""')
+        self.assertEqual(_cmd_quote(""), '""')
+
+    def test_cmd_quote_special_chars(self) -> None:
+        from extractorx.ui import _cmd_quote
+        result = _cmd_quote("path with spaces & special")
+        self.assertTrue(result.startswith('"'))
+        self.assertTrue(result.endswith('"'))
+
+
+class HookExecutionTests(unittest.TestCase):
+    def test_hook_runs_command_and_expands_tokens(self) -> None:
+        from extractorx.hooks import run_hook
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "test.zip"
+            archive.write_text("fake")
+            output = Path(tmp) / "output"
+            output.mkdir()
+            marker = Path(tmp) / "hook_ran.txt"
+            config = {"PostExtractCommand": f'cmd /c echo done > "{marker}"'}
+            messages: list[str] = []
+            run_hook("PostExtractCommand", config, archive, output, lambda msg, lvl: messages.append(msg))
+            self.assertTrue(any("completed" in m or "failed" in m for m in messages))
+
+    def test_hook_handles_nonexistent_command(self) -> None:
+        from extractorx.hooks import run_hook
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "test.zip"
+            archive.write_text("fake")
+            output = Path(tmp) / "output"
+            output.mkdir()
+            config = {"PostExtractCommand": "nonexistent_binary_xyz123"}
+            messages: list[str] = []
+            run_hook("PostExtractCommand", config, archive, output, lambda msg, lvl: messages.append(msg))
+            self.assertTrue(any("failed" in m.lower() for m in messages))
+
+
+class EndToEndExtractionTests(unittest.TestCase):
+    def test_extract_simple_zip(self) -> None:
+        import zipfile
+        from extractorx.extractor import ExtractionService
+        from extractorx.config import DEFAULT_CONFIG
+        sevenzip = _find_7zip_for_test()
+        if not sevenzip:
+            self.skipTest("7-Zip not available for end-to-end test")
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "test.zip"
+            output_dir = Path(tmp) / "out"
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("hello.txt", "Hello, World!")
+                zf.writestr("sub/nested.txt", "Nested content")
+            config = dict(DEFAULT_CONFIG)
+            config["OutputPath"] = str(output_dir)
+            config["SmartExtract"] = "Auto"
+            config["NestedExtraction"] = False
+            messages: Queue = Queue()
+            svc = ExtractionService(config, sevenzip, [], messages)
+            item = QueueItem.from_path(archive)
+            item.output_override = str(output_dir)
+            svc.extract_items([item])
+            svc.thread.join(timeout=30)
+            self.assertEqual(item.status, QueueStatus.DONE)
+            self.assertTrue((output_dir / "hello.txt").exists())
+            self.assertEqual((output_dir / "hello.txt").read_text(), "Hello, World!")
+            self.assertTrue((output_dir / "sub" / "nested.txt").exists())
+
+
+def _find_7zip_for_test() -> Path | None:
+    from extractorx.sevenzip import find_7zip
+    return find_7zip()
 
 
 if __name__ == "__main__":
