@@ -573,6 +573,7 @@ class ExtractionService:
             test_only=test_only,
             filename_encoding=effective_encoding,
             max_memory_gb=int(self.config.get("MaxMemoryGB", 0) or 0),
+            output_path_mode=str(self.config.get("OutputPathMode", "") or ""),
         )
         try:
             proc = subprocess.Popen(

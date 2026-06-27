@@ -94,6 +94,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "DiskSpaceCheck": True,
     "MaxMemoryGB": 0,
     "BlockOutdated7Zip": True,
+    "OutputPathMode": "",
     "WebhookUrl": "",
     "PasswordRules": [],
     "HandlerAllowlist": [],
