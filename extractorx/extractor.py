@@ -566,6 +566,7 @@ class ExtractionService:
             password=password,
             test_only=test_only,
             filename_encoding=effective_encoding,
+            max_memory_gb=int(self.config.get("MaxMemoryGB", 0) or 0),
         )
         try:
             proc = subprocess.Popen(

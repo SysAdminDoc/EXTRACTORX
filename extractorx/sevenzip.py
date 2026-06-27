@@ -261,6 +261,7 @@ def build_sevenzip_command(
     password: str | None = None,
     test_only: bool = False,
     filename_encoding: str = "Auto",
+    max_memory_gb: int = 0,
 ) -> list[str]:
     """Construct the 7-Zip invocation used by the extraction service.
 
@@ -284,6 +285,8 @@ def build_sevenzip_command(
         command.append(f"-ir!{pattern}")
     for pattern in [part.strip() for part in str(exclusions or "").split(";") if part.strip()]:
         command.append(f"-xr!{pattern}")
+    if max_memory_gb > 0:
+        command.append(f"-smemx{max_memory_gb}g")
     if password:
         command.append(f"-p{password}")
     return command
