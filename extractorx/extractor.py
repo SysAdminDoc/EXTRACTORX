@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import ctypes
 import os
+import hashlib
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
@@ -29,6 +30,7 @@ from .postprocess import (
     propagate_motw,
     run_external_processors,
     sanitize_extracted_filenames,
+    warn_dll_sideloading,
 )
 from .passwords import generate_wordlist
 from .scanner import scan_paths
@@ -251,6 +253,7 @@ class ExtractionService:
                     )
                 else:
                     sanitize_extracted_filenames(output, self._log)
+                    warn_dll_sideloading(output, self._log)
                     escaped = validate_extraction_paths(output)
                     if escaped:
                         for esc_path in escaped[:5]:
@@ -289,13 +292,24 @@ class ExtractionService:
                         )
                     )
                     if bool(self.config.get("NestedExtraction", True)):
-                        self._extract_nested(output, depth=1, motw_source=item.archive_path)
+                        parent_hash = _file_sha256(item.archive_path)
+                        self._extract_nested(
+                            output, depth=1, motw_source=item.archive_path,
+                            ancestor_hashes={parent_hash} if parent_hash else set(),
+                        )
                     run_external_processors(self.config, item.archive_path, output, self._log)
                     run_plugins(item.archive_path, output, self.config, self._log)
                     run_hook("PostExtractCommand", self.config, item.archive_path, output, self._log)
                     apply_post_action(item.archive_path, self.config, self._log)
                     if bool(self.config.get("OpenDestAfterExtract", False)):
                         open_destination(output, self._log)
+                    _send_webhook(self.config, {
+                        "event": "extraction_complete",
+                        "archive": item.archive_path.name,
+                        "status": "success",
+                        "output": str(output),
+                        "size_bytes": item.size_bytes,
+                    })
             else:
                 item.status = QueueStatus.FAILED
                 item.error = text
@@ -305,6 +319,13 @@ class ExtractionService:
                     cleanup_failed_output(item.output_path, self.config, self._log)
                     run_hook("OnFailureCommand", self.config, item.archive_path, output, self._log, exit_code=1)
                 self.messages.put(OperationMessage("item_failed", text, item_id=item.id, level="error"))
+                _send_webhook(self.config, {
+                    "event": "extraction_failed",
+                    "archive": item.archive_path.name,
+                    "status": "failed",
+                    "error": text,
+                    "size_bytes": item.size_bytes,
+                })
 
         if parallelism <= 1:
             for index, item in enumerate(items, start=1):
@@ -348,11 +369,12 @@ class ExtractionService:
             done_text = "Stopped."
         self.messages.put(OperationMessage("extract_done", done_text, payload={"test_only": test_only}))
 
-    def _extract_nested(self, folder: Path, depth: int, seen: set[Path] | None = None, motw_source: Path | None = None) -> None:
+    def _extract_nested(self, folder: Path, depth: int, seen: set[Path] | None = None, motw_source: Path | None = None, ancestor_hashes: set[str] | None = None) -> None:
         max_depth = int(self.config.get("NestedMaxDepth", 5))
         if depth > max_depth or self.stop_event.is_set():
             return
         seen = seen if seen is not None else set()
+        ancestor_hashes = ancestor_hashes if ancestor_hashes is not None else set()
         candidates: list[Path] = []
         for path in folder.rglob("*"):
             try:
@@ -370,6 +392,11 @@ class ExtractionService:
                 break
             if not path.exists():
                 continue
+            file_hash = _file_sha256(path)
+            if file_hash and file_hash in ancestor_hashes:
+                self._log(f"SECURITY: quine archive detected (self-referencing): {path.name}", "error")
+                _safe_delete(path)
+                continue
             output = path.with_name(archive_name(path))
             output.mkdir(parents=True, exist_ok=True)
             self.messages.put(OperationMessage("log", f"Nested archive: {path.name}"))
@@ -382,11 +409,12 @@ class ExtractionService:
                 if motw_source and bool(self.config.get("PropagateMotw", True)):
                     propagate_motw(motw_source, output, self._log)
                 self.messages.put(OperationMessage("log", f"Nested extracted: {path.name}", level="success"))
+                child_hashes = ancestor_hashes | ({file_hash} if file_hash else set())
                 if bool(self.config.get("NestedApplyPostAction", False)):
                     apply_post_action(path, self.config, self._log)
                 else:
                     _safe_delete(path)
-                self._extract_nested(output, depth + 1, seen, motw_source=motw_source)
+                self._extract_nested(output, depth + 1, seen, motw_source=motw_source, ancestor_hashes=child_hashes)
             else:
                 cleanup_failed_output(output, self.config, self._log)
                 self.messages.put(OperationMessage("log", f"Nested failed: {path.name}: {text}", level="error"))
@@ -696,6 +724,36 @@ def _terminate_process(proc: subprocess.Popen[str], *, kill: bool = False) -> No
             proc.terminate()
     except (OSError, ValueError):
         pass
+
+
+def _send_webhook(config: dict, payload: dict) -> None:
+    """POST a JSON payload to the configured webhook URL (fire-and-forget)."""
+    url = str(config.get("WebhookUrl", "") or "").strip()
+    if not url:
+        return
+    try:
+        import json
+        import urllib.request
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)  # type: ignore[arg-type]
+    except Exception:
+        pass
+
+
+def _file_sha256(path: Path) -> str | None:
+    """Return the hex SHA-256 of *path*, or None on error."""
+    try:
+        sha = hashlib.sha256()
+        with path.open("rb") as handle:
+            while True:
+                chunk = handle.read(65536)
+                if not chunk:
+                    break
+                sha.update(chunk)
+        return sha.hexdigest()
+    except OSError:
+        return None
 
 
 def _safe_delete(path: Path) -> None:

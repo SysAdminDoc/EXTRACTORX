@@ -92,6 +92,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "RetryDelaySeconds": 30,
     "SecureDelete": False,
     "DiskSpaceCheck": True,
+    "WebhookUrl": "",
     "PasswordRules": [],
     "HandlerAllowlist": [],
     "Bookmarks": [],

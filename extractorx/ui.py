@@ -284,6 +284,7 @@ class ExtractorXApp:
             convert_menu.add_command(label=fmt_label, command=lambda f=fmt_label.lower(): self._convert_selected(f))
         self.queue_menu.add_cascade(label="Convert to...", menu=convert_menu)
         self.queue_menu.add_command(label="Hex View", command=self._hex_view_selected)
+        self.queue_menu.add_command(label="Show Hash", command=self._show_hash_selected)
         self.queue_menu.add_command(label="Reveal Archive", command=self._reveal_selected_archive)
         self.queue_menu.add_command(label="Copy Archive Path", command=self._copy_selected_archive_path)
         self.queue_menu.add_command(label="Copy Destination Path", command=self._copy_selected_destination_path)
@@ -1032,6 +1033,34 @@ class ExtractorXApp:
 
         ttk.Button(controls, text="Extract Selected", command=extract_selected_files).pack(side="right", padx=(8, 0))
         self._log(f"Previewed {len(entries)} item(s) in {item.archive_path.name}.", "info")
+
+    def _show_hash_selected(self) -> None:
+        items = self._selected_items()[:1]
+        if not items:
+            self._log("Select an archive to show its hash.", "warning")
+            return
+        path = items[0].archive_path
+        if not path.exists():
+            self._log("Archive no longer exists.", "warning")
+            return
+        self._log(f"Computing SHA-256 for {path.name}...", "info")
+
+        def compute() -> None:
+            import hashlib
+            try:
+                sha = hashlib.sha256()
+                with path.open("rb") as handle:
+                    while True:
+                        chunk = handle.read(65536)
+                        if not chunk:
+                            break
+                        sha.update(chunk)
+                digest = sha.hexdigest()
+                self.root.after(0, lambda: self._log(f"SHA-256 ({path.name}): {digest}", "success"))
+            except OSError as exc:
+                self.root.after(0, lambda: self._log(f"Hash failed: {exc}", "error"))
+
+        Thread(target=compute, daemon=True).start()
 
     def _hex_view_selected(self) -> None:
         items = self._selected_items()[:1]

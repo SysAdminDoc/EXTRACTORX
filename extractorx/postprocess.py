@@ -79,6 +79,23 @@ def sanitize_extracted_filenames(output: Path, log: LogCallback) -> None:
             log(f"Path exceeds MAX_PATH ({full_len} chars): {path.name}", "warning")
 
 
+def warn_dll_sideloading(output: Path, log: LogCallback) -> None:
+    """Warn if extracted directories contain both .exe and .dll files."""
+    if not output.is_dir():
+        return
+    dirs_checked: set[Path] = set()
+    for path in output.rglob("*.exe"):
+        parent = path.parent
+        if parent in dirs_checked:
+            continue
+        dirs_checked.add(parent)
+        if any(sibling.suffix.lower() == ".dll" for sibling in parent.iterdir() if sibling.is_file()):
+            log(
+                f"Potential DLL sideloading: {parent.name}/ contains both .exe and .dll files",
+                "warning",
+            )
+
+
 def cleanup_success_output(output: Path, archive: Path, config: dict, log: LogCallback) -> Path:
     current = output
     mode = str(config.get("SmartExtract", "Auto"))
