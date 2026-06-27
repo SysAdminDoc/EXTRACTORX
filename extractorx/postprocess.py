@@ -11,10 +11,28 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from .archive import archive_name
+from .archive import archive_name, _is_reparse_point
 
+import logging as _logging
+
+_log_mod = _logging.getLogger("extractorx.postprocess")
 
 LogCallback = Callable[[str, str], None]
+
+
+def safe_rmtree(path: Path, ignore_errors: bool = False) -> bool:
+    """shutil.rmtree with pre-check for reparse points (junctions/symlinks).
+
+    Returns True if deletion succeeded, False if path was a reparse point
+    (refused) or did not exist.
+    """
+    if not path.exists():
+        return False
+    if os.name == "nt" and _is_reparse_point(path):
+        _log_mod.warning("Refused to delete reparse point: %s", path)
+        return False
+    shutil.rmtree(path, ignore_errors=ignore_errors)
+    return True
 
 
 def propagate_motw(archive: Path, output: Path, log: LogCallback) -> None:
@@ -162,7 +180,7 @@ def _flatten_single_child(output: Path, log: LogCallback) -> Path | None:
     try:
         output.rename(temp)
         (temp / wrapper.name).rename(output)
-        shutil.rmtree(temp, ignore_errors=True)
+        safe_rmtree(temp, ignore_errors=True)
         log("Smart Extract: flattened wrapping folder.", "info")
         return output
     except OSError as exc:
@@ -180,7 +198,7 @@ def cleanup_failed_output(output: Path | None, config: dict, log: LogCallback) -
         return
     try:
         if output.is_dir():
-            shutil.rmtree(output)
+            safe_rmtree(output)
         elif output.exists():
             output.unlink()
         else:
@@ -319,7 +337,7 @@ def recycle_path(path: Path) -> None:
         if path.is_file():
             path.unlink()
         else:
-            shutil.rmtree(path)
+            safe_rmtree(path)
         return
 
     try:
@@ -364,7 +382,7 @@ def _remove_duplicate_root_folder(output: Path, archive: Path, log: LogCallback)
     try:
         output.rename(temp)
         (temp / children[0].name).rename(output)
-        shutil.rmtree(temp, ignore_errors=True)
+        safe_rmtree(temp, ignore_errors=True)
         log("Removed duplicate archive-name folder.", "info")
         return output
     except OSError as exc:

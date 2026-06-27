@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Callable
 
 from .archive import validate_extraction_paths
-from .postprocess import sanitize_extracted_filenames
+from .postprocess import safe_rmtree, sanitize_extracted_filenames
 
 log = logging.getLogger("extractorx.repack")
 
@@ -146,4 +146,4 @@ def repack_archive(
         return None
     finally:
         if tmp and tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
+            safe_rmtree(tmp, ignore_errors=True)

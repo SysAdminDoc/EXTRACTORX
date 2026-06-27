@@ -29,6 +29,7 @@ from .postprocess import (
     open_destination,
     propagate_motw,
     run_external_processors,
+    safe_rmtree,
     sanitize_extracted_filenames,
     warn_dll_sideloading,
 )
@@ -272,7 +273,7 @@ class ExtractionService:
                                 if esc_path.is_file():
                                     esc_path.unlink()
                                 elif esc_path.is_dir():
-                                    shutil.rmtree(esc_path)
+                                    safe_rmtree(esc_path)
                             except OSError:
                                 pass
                         item.status = QueueStatus.FAILED
@@ -507,7 +508,7 @@ class ExtractionService:
                     self._log(f"SECURITY: {bomb_msg}", "error")
                     try:
                         if output.is_dir():
-                            shutil.rmtree(output)
+                            safe_rmtree(output)
                             self._log("Removed decompression bomb output.", "warning")
                     except OSError:
                         pass
@@ -772,7 +773,7 @@ def _safe_delete(path: Path) -> None:
         if path.is_file():
             path.unlink()
         elif path.is_dir():
-            shutil.rmtree(path)
+            safe_rmtree(path)
     except OSError:
         pass
 
