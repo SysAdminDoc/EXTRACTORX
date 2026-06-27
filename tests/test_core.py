@@ -1444,6 +1444,43 @@ class RepackSecurityTests(unittest.TestCase):
             self.assertIsNone(result)
 
 
+class PortableModeTests(unittest.TestCase):
+    def test_portable_flag_detected(self) -> None:
+        from extractorx.config import _reset_portable_cache, _portable_root, is_portable, app_data_dir, PORTABLE_FLAG
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            _reset_portable_cache()
+            flag = Path(tmp) / PORTABLE_FLAG
+            flag.write_text("")
+            script = Path(tmp) / "ExtractorX.py"
+            script.write_text("")
+            old_argv = sys.argv[0]
+            try:
+                sys.argv[0] = str(script)
+                _reset_portable_cache()
+                root = _portable_root()
+                self.assertIsNotNone(root)
+                self.assertTrue(is_portable())
+                data_dir = app_data_dir()
+                self.assertTrue(str(data_dir).endswith(".data"))
+            finally:
+                sys.argv[0] = old_argv
+                _reset_portable_cache()
+
+    def test_no_portable_flag(self) -> None:
+        from extractorx.config import _reset_portable_cache, is_portable
+        import sys
+        with tempfile.TemporaryDirectory() as tmp:
+            old_argv = sys.argv[0]
+            try:
+                sys.argv[0] = str(Path(tmp) / "ExtractorX.py")
+                _reset_portable_cache()
+                self.assertFalse(is_portable())
+            finally:
+                sys.argv[0] = old_argv
+                _reset_portable_cache()
+
+
 class DaemonModeTests(unittest.TestCase):
     def test_daemon_detects_and_extracts_archive(self) -> None:
         import zipfile
