@@ -783,6 +783,7 @@ class ExtractorXApp:
             else:
                 self.taskbar_progress.clear()
             self._play_completion_sound()
+            self._show_completion_notification(failed, bool(message.payload.get("test_only")))
             if bool(message.payload.get("test_only")):
                 self.root.after(200, self._show_test_results)
             if self.password_retry_candidates:
@@ -1136,6 +1137,21 @@ class ExtractorXApp:
             winsound.MessageBeep(winsound.MB_ICONHAND if failed else winsound.MB_ICONASTERISK)
         except RuntimeError:
             pass
+
+    def _show_completion_notification(self, failed: bool, test_only: bool) -> None:
+        if not self.shell_bridge:
+            return
+        done_count = sum(1 for i in self.items.values() if i.status in {QueueStatus.DONE, QueueStatus.TEST_OK})
+        fail_count = sum(1 for i in self.items.values() if i.status == QueueStatus.FAILED)
+        verb = "Tested" if test_only else "Extracted"
+        title = f"ExtractorX — {'Errors' if failed else 'Complete'}"
+        parts = []
+        if done_count:
+            parts.append(f"{done_count} succeeded")
+        if fail_count:
+            parts.append(f"{fail_count} failed")
+        message = f"{verb}: {', '.join(parts)}" if parts else f"{verb} complete."
+        self.shell_bridge.show_notification(title, message, error=failed)
 
     def _prompt_password_retry(self) -> None:
         if self.service.active:

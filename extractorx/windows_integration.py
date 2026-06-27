@@ -40,7 +40,11 @@ NIM_SETVERSION = 0x00000004
 NIF_MESSAGE = 0x00000001
 NIF_ICON = 0x00000002
 NIF_TIP = 0x00000004
+NIF_INFO = 0x00000010
 NOTIFYICON_VERSION_4 = 4
+NIIF_INFO = 0x00000001
+NIIF_WARNING = 0x00000002
+NIIF_ERROR = 0x00000003
 IDI_APPLICATION = 32512
 
 
@@ -239,6 +243,17 @@ class WindowsShellBridge:
             return
         self.icon_data.szTip = tip[:127]
         shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self.icon_data))
+
+    def show_notification(self, title: str, message: str, error: bool = False) -> None:
+        """Show a balloon/toast notification via the tray icon."""
+        if not self.enabled or not self.tray_visible or not self.icon_data:
+            return
+        self.icon_data.uFlags = NIF_INFO
+        self.icon_data.szInfo = message[:255]
+        self.icon_data.szInfoTitle = title[:63]
+        self.icon_data.dwInfoFlags = NIIF_ERROR if error else NIIF_INFO
+        shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self.icon_data))
+        self.icon_data.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
 
     def remove_tray_icon(self) -> None:
         if self.enabled and self.tray_visible and self.icon_data:
