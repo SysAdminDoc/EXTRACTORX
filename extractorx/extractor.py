@@ -16,7 +16,7 @@ from threading import Event, Lock, Thread
 
 log = logging.getLogger("extractorx.extractor")
 
-from .archive import archive_name, detect_zip_codepage, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
+from .archive import archive_name, detect_zip_codepage, format_size, is_non_first_volume, is_supported_archive, resolve_output_path, validate_extraction_paths
 from .hooks import run_hook
 from .models import OperationMessage, QueueItem, QueueStatus
 from .plugins import run_plugins
@@ -27,10 +27,11 @@ from .postprocess import (
     open_destination,
     propagate_motw,
     run_external_processors,
+    sanitize_extracted_filenames,
 )
 from .passwords import generate_wordlist
 from .scanner import scan_paths
-from .sevenzip import build_sevenzip_command, check_7zip_version, download_7zip, MIN_SEVENZIP_LABEL
+from .sevenzip import build_sevenzip_command, check_7zip_version, download_7zip, get_archive_total_size, MIN_SEVENZIP_LABEL
 
 
 class ExtractionService:
@@ -200,6 +201,20 @@ class ExtractionService:
                     payload={"test_only": test_only},
                 )
             )
+            if not test_only and bool(self.config.get("DiskSpaceCheck", True)):
+                try:
+                    total_size = get_archive_total_size(self.sevenzip_path, item.archive_path)
+                    if total_size:
+                        target_root = output if output.exists() else output.parent
+                        free = shutil.disk_usage(target_root).free
+                        if total_size > free:
+                            self._log(
+                                f"Low disk space: {item.archive_path.name} needs ~{format_size(total_size)} "
+                                f"but only {format_size(free)} free on target volume.",
+                                "warning",
+                            )
+                except OSError:
+                    pass
             retry_max = int(self.config.get("RetryCount", 0) or 0) if not test_only else 0
             retry_delay = int(self.config.get("RetryDelaySeconds", 30) or 30)
             attempt = 0
@@ -226,6 +241,7 @@ class ExtractionService:
                         )
                     )
                 else:
+                    sanitize_extracted_filenames(output, self._log)
                     escaped = validate_extraction_paths(output)
                     if escaped:
                         for esc_path in escaped[:5]:

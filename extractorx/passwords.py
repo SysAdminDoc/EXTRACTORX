@@ -122,6 +122,9 @@ def generate_wordlist(
     return result
 
 
+_DPAPI_ENTROPY = b"ExtractorX-v2-password-store"
+
+
 class DATA_BLOB(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
 
@@ -165,7 +168,14 @@ class PasswordStore:
             return []
         if not isinstance(parsed, list):
             return []
-        return [str(item) for item in parsed if str(item)]
+        passwords = [str(item) for item in parsed if str(item)]
+        if raw.startswith(b"dpapi:") and os.name == "nt":
+            try:
+                self.save(passwords)
+                log.info("Migrated password store to entropy-protected format.")
+            except Exception:
+                pass
+        return passwords
 
     def save(self, passwords: list[str]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -196,10 +206,12 @@ class PasswordStore:
 def _protect(data: bytes) -> bytes:
     if os.name != "nt":
         return b"plain:" + base64.b64encode(data)
-    return b"dpapi:" + _crypt_protect(data)
+    return b"dpapi2:" + _crypt_protect(data, _DPAPI_ENTROPY)
 
 
 def _unprotect(data: bytes) -> str:
+    if data.startswith(b"dpapi2:") and os.name == "nt":
+        return _crypt_unprotect(data[7:], _DPAPI_ENTROPY).decode("utf-8")
     if data.startswith(b"dpapi:") and os.name == "nt":
         return _crypt_unprotect(data[6:]).decode("utf-8")
     if data.startswith(b"plain:"):
@@ -213,35 +225,49 @@ def _blob_from_bytes(data: bytes) -> tuple[DATA_BLOB, ctypes.Array[ctypes.c_byte
     return blob, buffer
 
 
-def _crypt_protect(data: bytes) -> bytes:
+def _crypt_protect(data: bytes, entropy: bytes | None = None) -> bytes:
     crypt32 = ctypes.windll.crypt32
     kernel32 = ctypes.windll.kernel32
     kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
     kernel32.LocalFree.restype = wintypes.HLOCAL
     in_blob, in_buffer = _blob_from_bytes(data)
+    if entropy:
+        ent_blob, ent_buffer = _blob_from_bytes(entropy)
+        ent_arg = ctypes.byref(ent_blob)
+    else:
+        ent_arg = None
+        ent_buffer = None
     out_blob = DATA_BLOB()
     try:
-        if not crypt32.CryptProtectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
+        if not crypt32.CryptProtectData(ctypes.byref(in_blob), None, ent_arg, None, None, 0, ctypes.byref(out_blob)):
             raise ctypes.WinError()
         return ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
         _ = in_buffer
+        _ = ent_buffer
         if out_blob.pbData:
             kernel32.LocalFree(ctypes.cast(out_blob.pbData, wintypes.HLOCAL))
 
 
-def _crypt_unprotect(data: bytes) -> bytes:
+def _crypt_unprotect(data: bytes, entropy: bytes | None = None) -> bytes:
     crypt32 = ctypes.windll.crypt32
     kernel32 = ctypes.windll.kernel32
     kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
     kernel32.LocalFree.restype = wintypes.HLOCAL
     in_blob, in_buffer = _blob_from_bytes(data)
+    if entropy:
+        ent_blob, ent_buffer = _blob_from_bytes(entropy)
+        ent_arg = ctypes.byref(ent_blob)
+    else:
+        ent_arg = None
+        ent_buffer = None
     out_blob = DATA_BLOB()
     try:
-        if not crypt32.CryptUnprotectData(ctypes.byref(in_blob), None, None, None, None, 0, ctypes.byref(out_blob)):
+        if not crypt32.CryptUnprotectData(ctypes.byref(in_blob), None, ent_arg, None, None, 0, ctypes.byref(out_blob)):
             raise ctypes.WinError()
         return ctypes.string_at(out_blob.pbData, out_blob.cbData)
     finally:
         _ = in_buffer
+        _ = ent_buffer
         if out_blob.pbData:
             kernel32.LocalFree(ctypes.cast(out_blob.pbData, wintypes.HLOCAL))

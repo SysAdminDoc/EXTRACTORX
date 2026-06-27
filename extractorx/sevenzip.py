@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
@@ -77,23 +78,32 @@ def find_7zip(override: str | Path | None = None) -> Path | None:
     return None
 
 
-def _atomic_download(url: str, target: Path, timeout: float = 120.0) -> None:
+def _atomic_download(url: str, target: Path, timeout: float = 120.0, expected_sha256: str | None = None) -> None:
     """Download ``url`` to a temp sibling then move into place.
 
     Avoids leaving a corrupt partial file at ``target`` if the transfer is
-    interrupted mid-flight.
+    interrupted mid-flight. When *expected_sha256* is given, the download is
+    verified before committing; a mismatch raises ``ValueError``.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(f"{target.name}.{uuid4().hex[:8]}.part")
     request = urllib.request.Request(url, headers={"User-Agent": "ExtractorX-Bootstrap/1.0"})
     try:
-        # noqa: S310 - the URL is a fixed https endpoint at 7-zip.org.
+        sha = hashlib.sha256() if expected_sha256 else None
         with urllib.request.urlopen(request, timeout=timeout) as response, tmp.open("wb") as handle:  # type: ignore[arg-type]
             while True:
                 chunk = response.read(65536)
                 if not chunk:
                     break
                 handle.write(chunk)
+                if sha:
+                    sha.update(chunk)
+        if sha and expected_sha256:
+            actual = sha.hexdigest().lower()
+            if actual != expected_sha256.lower():
+                raise ValueError(
+                    f"SHA-256 mismatch for {url}: expected {expected_sha256[:16]}..., got {actual[:16]}..."
+                )
         os.replace(tmp, target)
     finally:
         try:
@@ -123,7 +133,10 @@ def download_7zip() -> Path:
 
     extra = target_dir / "7z-extra.7z"
     try:
-        _atomic_download("https://www.7-zip.org/a/7z2601-extra.7z", extra)
+        _atomic_download(
+            "https://www.7-zip.org/a/7z2601-extra.7z", extra,
+            expected_sha256="05cda5442075a7c6ce246ca1bbb9b1f1d6f1787a9559156f9b8b2dad29a86971",
+        )
         subprocess_path = sevenz if sevenz.exists() else sevenzr
         subprocess.run(
             [str(subprocess_path), "x", str(extra), f"-o{target_dir}", "-y"],
@@ -154,8 +167,10 @@ def list_archive_contents(
 
     Returns a list of dicts with keys: ``Path``, ``Size``, ``Modified``, ``Attr``.
     """
+    if not sevenzip_path:
+        return []
     command: list[str] = [
-        str(sevenzip_path) if sevenzip_path else "7z",
+        str(sevenzip_path),
         "l",
         str(archive),
         "-slt",
@@ -197,6 +212,22 @@ def list_archive_contents(
     ]
 
 
+def get_archive_total_size(
+    sevenzip_path: Path | str | None,
+    archive: Path | str,
+    password: str | None = None,
+) -> int | None:
+    """Return the total uncompressed size of *archive* in bytes, or None."""
+    entries = list_archive_contents(sevenzip_path, archive, password)
+    total = 0
+    for entry in entries:
+        try:
+            total += int(entry.get("Size", "0") or "0")
+        except (ValueError, TypeError):
+            continue
+    return total if total > 0 else None
+
+
 def overwrite_switch(mode: str) -> str:
     if mode == "Never":
         return "-aos"
@@ -233,8 +264,10 @@ def build_sevenzip_command(
     Extracted into its own helper so the command layout can be verified without
     touching the filesystem or spawning 7-Zip.
     """
+    if not sevenzip_path:
+        raise ValueError("7-Zip path is required but was not provided. Run find_7zip() first.")
     command: list[str] = [
-        str(sevenzip_path) if sevenzip_path else "7z",
+        str(sevenzip_path),
         "t" if test_only else "x",
         str(archive),
     ]

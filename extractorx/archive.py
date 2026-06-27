@@ -111,7 +111,9 @@ def archive_name(path: Path | str) -> str:
 
 
 def resolve_output_path(template: str, archive: Path | str) -> Path:
-    archive_path = Path(archive).resolve()
+    archive_path = Path(archive).expanduser()
+    if not archive_path.is_absolute():
+        archive_path = Path(os.path.abspath(archive_path))
     now = datetime.now()
     resolved = template or r"{ArchiveFolder}\{ArchiveName}"
     name = archive_name(archive_path)
@@ -222,17 +224,32 @@ def validate_extraction_paths(output: Path) -> list[Path]:
         canonical_root = output.resolve(strict=True)
     except OSError:
         return escaped
+    norm_root = os.path.normcase(str(canonical_root))
     try:
         for path in output.rglob("*"):
             try:
+                if path.is_symlink() or (os.name == "nt" and _is_reparse_point(path)):
+                    escaped.append(path)
+                    continue
                 canonical = path.resolve(strict=True)
-                if not str(canonical).startswith(str(canonical_root) + os.sep) and canonical != canonical_root:
+                norm_canonical = os.path.normcase(str(canonical))
+                if not norm_canonical.startswith(norm_root + os.sep) and norm_canonical != norm_root:
                     escaped.append(path)
             except OSError:
                 continue
     except OSError:
         pass
     return escaped
+
+
+def _is_reparse_point(path: Path) -> bool:
+    """Check if *path* is a Windows reparse point (junction, symlink, etc.)."""
+    try:
+        import ctypes
+        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))
+        return attrs != -1 and bool(attrs & 0x0400)
+    except (OSError, AttributeError):
+        return False
 
 
 def format_size(size: int) -> str:

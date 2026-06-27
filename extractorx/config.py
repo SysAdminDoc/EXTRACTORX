@@ -91,6 +91,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "RetryCount": 0,
     "RetryDelaySeconds": 30,
     "SecureDelete": False,
+    "DiskSpaceCheck": True,
     "PasswordRules": [],
     "HandlerAllowlist": [],
     "Bookmarks": [],

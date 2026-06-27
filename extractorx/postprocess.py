@@ -34,7 +34,7 @@ def propagate_motw(archive: Path, output: Path, log: LogCallback) -> None:
         return
     propagated = 0
     for path in output.rglob("*"):
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             continue
         try:
             target_stream = str(path) + ":Zone.Identifier"
@@ -44,6 +44,39 @@ def propagate_motw(archive: Path, output: Path, log: LogCallback) -> None:
             continue
     if propagated:
         log(f"Propagated MOTW to {propagated} extracted file(s).", "info")
+
+
+_BIDI_CHARS = frozenset(
+    "‎‏‪‫‬‭‮⁦⁧⁨⁩"
+)
+_RESERVED_NAMES = frozenset({
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+})
+
+
+def sanitize_extracted_filenames(output: Path, log: LogCallback) -> None:
+    """Rename extracted files with dangerous Unicode or Windows reserved names."""
+    if not output.is_dir():
+        return
+    for path in sorted(output.rglob("*"), key=lambda p: len(str(p)), reverse=True):
+        name = path.name
+        cleaned = "".join(c for c in name if c not in _BIDI_CHARS)
+        stem = Path(cleaned).stem.lower() if cleaned else ""
+        if stem in _RESERVED_NAMES:
+            cleaned = f"_{cleaned}"
+        if cleaned and cleaned != name:
+            target = path.with_name(cleaned)
+            try:
+                if not target.exists():
+                    path.rename(target)
+                    log(f"Sanitized filename: {name} -> {cleaned}", "warning")
+            except OSError:
+                pass
+        full_len = len(str(path))
+        if full_len > 260:
+            log(f"Path exceeds MAX_PATH ({full_len} chars): {path.name}", "warning")
 
 
 def cleanup_success_output(output: Path, archive: Path, config: dict, log: LogCallback) -> Path:
