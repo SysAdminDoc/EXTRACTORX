@@ -2,8 +2,7 @@
 
 Runs user-configured shell commands for pre-extract, post-extract, and
 on-failure events. Commands use the same token syntax as external processors
-so paths with spaces or ``cmd.exe`` meta-characters survive a ``shell=True``
-invocation.
+with values double-quoted for safe ``CreateProcess`` parsing.
 """
 
 from __future__ import annotations
@@ -45,7 +44,6 @@ def run_hook(
     try:
         result = subprocess.run(
             expanded,
-            shell=True,
             capture_output=True,
             text=True,
             encoding="utf-8",

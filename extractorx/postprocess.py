@@ -186,7 +186,6 @@ def run_external_processors(config: dict, archive: Path, output: Path, log: LogC
         try:
             result = subprocess.run(
                 command,
-                shell=True,
                 cwd=str(output if output.is_dir() else output.parent),
                 capture_output=True,
                 text=True,

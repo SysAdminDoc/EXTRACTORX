@@ -228,12 +228,26 @@ class ExtractionService:
                 else:
                     escaped = validate_extraction_paths(output)
                     if escaped:
-                        for path in escaped[:5]:
-                            self._log(f"SECURITY: path escaped output dir: {path}", "error")
+                        for esc_path in escaped[:5]:
+                            self._log(f"SECURITY: path escaped output dir: {esc_path}", "error")
                         self._log(
                             f"SECURITY: {len(escaped)} file(s) written outside output directory — possible zip-slip attack.",
                             "error",
                         )
+                        for esc_path in escaped:
+                            try:
+                                if esc_path.is_file():
+                                    esc_path.unlink()
+                                elif esc_path.is_dir():
+                                    shutil.rmtree(esc_path)
+                            except OSError:
+                                pass
+                        item.status = QueueStatus.FAILED
+                        item.error = f"SECURITY: {len(escaped)} file(s) escaped output directory (zip-slip). Escaped files removed."
+                        cleanup_failed_output(output, self.config, self._log)
+                        self.messages.put(OperationMessage("item_failed", item.error, item_id=item.id, level="error"))
+                        run_hook("OnFailureCommand", self.config, item.archive_path, output, self._log, exit_code=1)
+                        return
                     output = cleanup_success_output(output, item.archive_path, self.config, self._log)
                     item.output_path = output
                     item.status = QueueStatus.DONE
@@ -248,7 +262,7 @@ class ExtractionService:
                         )
                     )
                     if bool(self.config.get("NestedExtraction", True)):
-                        self._extract_nested(output, depth=1)
+                        self._extract_nested(output, depth=1, motw_source=item.archive_path)
                     run_external_processors(self.config, item.archive_path, output, self._log)
                     run_plugins(item.archive_path, output, self.config, self._log)
                     run_hook("PostExtractCommand", self.config, item.archive_path, output, self._log)
@@ -307,7 +321,7 @@ class ExtractionService:
             done_text = "Stopped."
         self.messages.put(OperationMessage("extract_done", done_text, payload={"test_only": test_only}))
 
-    def _extract_nested(self, folder: Path, depth: int, seen: set[Path] | None = None) -> None:
+    def _extract_nested(self, folder: Path, depth: int, seen: set[Path] | None = None, motw_source: Path | None = None) -> None:
         max_depth = int(self.config.get("NestedMaxDepth", 5))
         if depth > max_depth or self.stop_event.is_set():
             return
@@ -338,12 +352,14 @@ class ExtractionService:
                     with self._password_lock:
                         self.remembered_password = password_used
                 cleanup_success_output(output, path, self.config, self._log)
+                if motw_source and bool(self.config.get("PropagateMotw", True)):
+                    propagate_motw(motw_source, output, self._log)
                 self.messages.put(OperationMessage("log", f"Nested extracted: {path.name}", level="success"))
                 if bool(self.config.get("NestedApplyPostAction", False)):
                     apply_post_action(path, self.config, self._log)
                 else:
                     _safe_delete(path)
-                self._extract_nested(output, depth + 1, seen)
+                self._extract_nested(output, depth + 1, seen, motw_source=motw_source)
             else:
                 cleanup_failed_output(output, self.config, self._log)
                 self.messages.put(OperationMessage("log", f"Nested failed: {path.name}: {text}", level="error"))
@@ -429,6 +445,13 @@ class ExtractionService:
                 bomb_msg = self._check_decompression_ratio(archive, text)
                 if bomb_msg and not test_only:
                     self._log(f"SECURITY: {bomb_msg}", "error")
+                    try:
+                        if output.is_dir():
+                            shutil.rmtree(output)
+                            self._log("Removed decompression bomb output.", "warning")
+                    except OSError:
+                        pass
+                    return False, bomb_msg, None
                 return True, text, password
             last_error = text or f"7-Zip exited with code {code}."
         if self.passwords or sidecar:
