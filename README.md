@@ -15,7 +15,8 @@
 
 <p align="center">
   Drag-and-drop batch extraction with password cycling, nested archive support,<br>
-  directory monitoring, and a premium themed interface. The original PowerShell app is preserved, and a modular Python port is now included.
+  directory monitoring, and a premium themed interface. Ships as a modular Python/Tkinter<br>
+  app with a preserved legacy PowerShell/WPF version.
 </p>
 
 ---
@@ -30,31 +31,67 @@
 - **29 archive formats** — ZIP, 7Z, RAR, TAR, GZ, BZ2, XZ, ZSTD, ISO, CAB, ARJ, LZH, WIM, CPIO, RPM, DEB, and more
 - **Multi-volume archive detection** — automatically groups split archives (`.part1.rar`, `.7z.001`, etc.) and only extracts the first volume
 - **Nested extraction** — recursively extracts archives within archives up to configurable depth
-- **Password cycling** — automatically tries a stored password list against encrypted archives (DPAPI encrypted storage)
+- **Password cycling** — automatically tries a stored password list against encrypted archives (DPAPI encrypted storage with application-specific entropy)
+- **Hash-mode password probe** — uses fast `7z t` testing to find the correct password before full extraction
+- **Password sidecar files** — reads `archive.pwd.txt` or `passwords.txt` next to the archive
+- **Regex password rules** — map filename patterns to specific password lists
+- **Wordlist generation** — expands passwords with case, leet-speak, and date-suffix permutations
 - **Deep archive detection** — identifies archives by magic bytes when file extensions are missing or wrong
-- **Verbose real-time output** — see every file as it's extracted, with color-coded log entries
+- **Parallel extraction** — configurable thread pool for concurrent archive processing
+- **Retry with backoff** — configurable retry count and delay for failed extractions
+- **Archive format conversion** — right-click Convert to ZIP/7z/TAR (repack)
+- **Archive content preview** — list archive contents without extracting
+- **Archive search** — grep inside queued archives without extracting
+- **Archive diff** — compare two archives' contents side by side
+- **Hex view** — inspect raw archive bytes
+- **Archive browser** — selective extraction of individual files from preview
 
 ### Interface
-- **Custom chrome** — frameless window with branded title bar, no default Windows UI
-- **Multiple themes** — Midnight, Graphite, Ocean, and White themes across the main window, settings, dialogs, and menus
-- **Virtualized ListView** — handles 10,000+ queued items without lag
+- **5 themes** — Midnight, Graphite, Ocean, White, and High Contrast with live reload
+- **Dark title bar** — automatic DwmSetWindowAttribute dark chrome for dark themes
+- **System theme detection** — detects Windows dark/light mode on first launch
 - **Color-coded status rows** — green (success), red (failed), blue (extracting), yellow (password required), gray (queued)
 - **Drag & drop** — drop files or entire folders onto the window to queue archives
-- **Progress bar** — thin accent-colored bar tracks extraction progress across the batch
+- **Taskbar progress** — extraction progress reflected in the Windows taskbar icon via ITaskbarList3
+- **Per-file progress** — progress bar updates within each archive extraction
+- **ETA and throughput** — shows MB/s and estimated time remaining during batch extraction
 - **Column sorting** — click any column header to sort ascending/descending
 - **Selection info** — status bar shows count and total size of selected items
-- **System tray** — minimizes to tray with live extraction status, context menu for quick actions
+- **System tray** — minimizes to tray with live extraction status and context menu
 - **Completion sounds** — audible notification on batch success or failure
+- **Keyboard shortcuts** — Ctrl+O (add), Ctrl+E (extract), Ctrl+S (export), Delete, Enter, Escape
+- **File integrity hash** — SHA-256 display via queue context menu
+- **Export Script** — generate portable 7z batch commands for the current queue
 
 ### Automation
 - **Watch folders** — monitor directories for new archives and extract automatically
+- **Watch-folder rules** — per-path output template and post-action overrides
+- **Headless daemon mode** — `--daemon` flag for watch-folder-only operation without GUI
 - **Windows Explorer context menu** — right-click integration for Extract Here, Extract to Folder, Add to Queue, and Search for Archives
+- **Per-extension file associations** — toggle associations per format in Settings > Explorer
 - **External processors** — route specific file extensions to custom commands after extraction
+- **Pre/post/on-failure lifecycle hooks** — run shell commands at extraction lifecycle events
+- **Plugin SDK** — custom Python post-processors in `%APPDATA%/ExtractorX/plugins/`
 - **Output path macros** — template-based output paths with `{ArchiveFolder}`, `{ArchiveName}`, `{Date}`, `{Guid}`, and more
-- **Command-line support** — pass files/folders as arguments or use `-TargetPath` to override output
+- **Webhook notifications** — JSON POST on extraction success/failure via `WebhookUrl` config
+- **Export history** — extraction history as CSV/JSON
+
+### Security
+- **Minimum 7-Zip version enforcement** — warns when 7-Zip is below 26.02 (CVE-2026-48095)
+- **Zip-slip defense** — post-extraction path validation with remediation (escaped files deleted)
+- **Decompression bomb detection** — configurable ratio limit with automatic cleanup
+- **Mark-of-the-Web propagation** — Zone.Identifier ADS copied from source archive to extracted files, including nested archives
+- **Filename sanitization** — strips Unicode bidi control characters, prefixes reserved names, warns on MAX_PATH
+- **Reparse point detection** — symlinks and junctions flagged and removed from extracted output
+- **Quine archive detection** — nested extraction detects self-referencing archives via SHA-256 chain
+- **DLL sideloading warning** — alerts when extracted directory contains both .exe and .dll files
+- **Secure source deletion** — zero-overwrite before unlinking source archives
+- **Disk space check** — warns before extraction when archive size exceeds available free space
+- **Codepage auto-detection** — detects CJK/Cyrillic encodings for cross-locale ZIP filenames
 
 ### Post-Extraction
 - **Post actions** — do nothing, recycle, move to folder, or permanently delete source archives after success
+- **Smart Extract** — Auto/AlwaysWrap/NeverWrap policies for output folder structure
 - **Duplicate folder removal** — eliminates the redundant `archive/archive/` nesting pattern
 - **Single file rename** — renames lone extracted files to match the archive name
 - **Broken file cleanup** — optionally deletes output when extraction fails
@@ -63,9 +100,9 @@
 
 - **Windows 10/11** with PowerShell 5.1+ for the legacy WPF app
 - **Python 3.12+** for the modular Python port
-- **7-Zip** — auto-detected from standard install paths, or downloaded automatically if not found
+- **7-Zip 26.02+** — auto-detected from standard install paths, or downloaded automatically if not found
 
-The Python port uses the standard library Tkinter UI and does not require third-party packages.
+The Python port uses the standard library only and does not require third-party packages.
 
 ## Installation
 
@@ -80,7 +117,7 @@ Download [`ExtractorX.ps1`](ExtractorX.ps1) and run it:
 ```bash
 git clone https://github.com/SysAdminDoc/ExtractorX.git
 cd ExtractorX
-.\ExtractorX.ps1
+python ExtractorX.py
 ```
 
 ### Execution Policy
@@ -92,8 +129,8 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ## Usage
 
 ### Quick Start
-1. Run `ExtractorX.ps1` for the original WPF app, or `python ExtractorX.py` for the Python port
-2. Drag archives onto the PowerShell window, or click **Add Files** / **Scan Folder**
+1. Run `python ExtractorX.py` for the Python port, or `ExtractorX.ps1` for the legacy WPF app
+2. Drag archives onto the window, or click **Add Files** / **Scan Folder**
 3. Click **Extract**
 
 ### Python Port
@@ -102,49 +139,65 @@ The Python implementation is organized into modules under `extractorx/`:
 
 ```text
 ExtractorX.py              # Python entrypoint
-ExtractorX.Legacy.ps1      # Preserved copy of the polished PowerShell app
 extractorx/
-  app.py                   # Bootstrap and dependency wiring
+  __init__.py              # Package init (__version__)
+  __main__.py              # python -m extractorx launcher
+  app.py                   # CLI parser and bootstrap
   config.py                # Config defaults, normalization, persistence
   archive.py               # Archive detection, magic bytes, output paths
-  extractor.py             # 7-Zip extraction service
+  extractor.py             # 7-Zip extraction service with parallel pool
+  sevenzip.py              # 7-Zip discovery, version check, command builder
+  passwords.py             # DPAPI password store + wordlist generator
+  postprocess.py           # Cleanup, Smart Extract, MotW, sanitization
+  hooks.py                 # Pre/post/on-failure lifecycle hooks
+  plugins.py               # Plugin SDK for custom post-processors
+  repack.py                # Archive format conversion
+  scanner.py               # Folder scanning with symlink protection
   watcher.py               # Dependency-free watch-folder service
-  passwords.py             # DPAPI-backed password store
-  postprocess.py           # Cleanup, post-actions, external processors
+  daemon.py                # Headless daemon mode (--daemon)
+  download.py              # URL download helper + update checker
+  identify.py              # Archive format identification
   shell_integration.py     # Explorer context menu registry integration
-  windows_integration.py   # Native drag/drop and tray icon bridge
+  windows_integration.py   # Native drag/drop, tray, taskbar progress
+  settings_ui.py           # 9-tab settings dialog
+  themes.py                # 5 theme palettes
   ui.py                    # Tkinter desktop interface
 ```
 
 Run it with:
 
-```powershell
-python .\ExtractorX.py
-python .\ExtractorX.py --target "D:\Extracted" "C:\Downloads\archive.zip"
-python .\ExtractorX.py --test "C:\Downloads\archive.zip"
-python .\ExtractorX.py --extract-here --auto-extract "C:\Downloads\archive.zip"
+```bash
+# GUI mode
+python ExtractorX.py
+python -m extractorx
+
+# CLI extraction
+python ExtractorX.py --extract-here --auto-extract "C:\Downloads\archive.zip"
+
+# Pattern-scoped extraction
+python ExtractorX.py --include-glob "*.json;*.md" --exclude-glob "*.tmp" archive.zip
+
+# Headless daemon mode (watch folders only)
+python ExtractorX.py --daemon
+
+# Identify archive format
+python ExtractorX.py --identify archive.bin
 ```
 
-Current Python parity plus v2.3 additions: batch extraction, archive testing, password cycling,
-remembered batch passwords, password retry prompts, password text-file import, **password entropy
-meter**, **skip-after-N-failed-passwords policy**, nested extraction, watch folders with batched
-auto-extract, native Windows drag/drop, minimize-to-tray behavior, post-actions, file exclusions
-and **include masks**, the full legacy output-macro set plus `{Program Files}`, persistent log
-history, external processors, Explorer context menus, file associations, queue sorting,
-selected-item summaries, status-colored rows, completion sounds, right-click queue actions, live
-theme swapping, **Smart Extract policy (Auto/AlwaysWrap/NeverWrap)**, **filename encoding
-override**, **parallel extraction**, **pre/post/on-failure lifecycle hooks**, **backend selector
-for 7-Zip / 7-Zip ZS / NanaZip**, **handler allowlist**, **bookmarks menu**, **Identify button /
-`--identify` CLI**, **Export Script** toolbar action, **URL argument support**, and **portable
-mode** (drop a `portable.flag` sibling file to relocate config/logs to `ExtractorX.data/`).
+Install as a package (optional):
 
-Tests live under `tests/` and run with:
+```bash
+pip install .
+extractorx
+```
+
+Tests:
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-### Command Line
+### Command Line (PowerShell)
 ```powershell
 # Extract specific files
 .\ExtractorX.ps1 "C:\Downloads\archive.7z" "C:\Downloads\backup.rar"
@@ -179,13 +232,13 @@ python -m unittest discover -s tests
 **Default:** `{ArchiveFolder}\{ArchiveName}` — extracts next to the archive into a folder matching its name.
 
 ### Context Menu Integration
-Enable in **Settings > Explorer** to add right-click options for archives and folders in Windows Explorer. Supports grouped submenus or flat entries.
+Enable in **Settings > Explorer** to add right-click options for archives and folders in Windows Explorer. Per-extension file association toggles let you control which formats are registered.
 
 ### Watch Folders
-Add directories in **Settings > Monitor** to automatically detect and extract new archives as they appear. Useful for download folders.
+Add directories in **Settings > Monitor** to automatically detect and extract new archives as they appear. Per-path rules can override the output template and post-action. Use `--daemon` for headless operation.
 
 ### Password Management
-Add passwords in **Settings > Passwords**. Passwords are encrypted with Windows DPAPI and stored locally. ExtractorX cycles through the list automatically when it encounters an encrypted archive. Import from a text file (one password per line) for bulk loading.
+Add passwords in **Settings > Passwords**. Passwords are encrypted with Windows DPAPI (with application-specific entropy) and stored locally. ExtractorX cycles through the list automatically when it encounters an encrypted archive. Import from a text file (one password per line) for bulk loading. Regex rules can map filename patterns to specific password lists.
 
 ## Settings
 
@@ -193,17 +246,17 @@ ExtractorX has 9 settings tabs:
 
 | Tab | Controls |
 |---|---|
-| **General** | Theme selection, always on top, minimize to tray, log history, deep detection |
+| **General** | Theme selection, always on top, minimize to tray, log history, deep detection, auto-update check |
 | **Destination** | Output path template, overwrite mode |
-| **Process** | Nested extraction, post-actions, cleanup, batch completion |
-| **Explorer** | Context menu entries and grouping |
-| **Drag & Drop** | Auto-extract on drop, inclusion/exclusion filters |
-| **Passwords** | Password list management, import, cycling behavior |
-| **Files** | File exclusion masks |
-| **Monitor** | Watch folder list, auto-extract toggle |
-| **Advanced** | Thread priority, sounds, external processors, config management |
+| **Process** | Nested extraction depth, parallel workers, retry count/delay, post-actions, cleanup, Smart Extract policy, batch completion behavior |
+| **Monitor** | Watch folder list, per-path rules, auto-extract toggle |
+| **Passwords** | Password list management, import, cycling behavior, skip-after-N policy, regex rules, sidecar files, wordlist generation |
+| **Files** | File exclusion masks, drag & drop filter type/masks, handler allowlist |
+| **Explorer** | Context menu entries and grouping, per-extension file association toggles |
+| **Advanced** | Thread priority, sounds, external processors, lifecycle hooks, filename encoding, decompression ratio limit, disk space check, MotW propagation, secure delete, webhook URL |
+| **Bookmarks** | Saved output path bookmarks for quick destination switching |
 
-Configuration is stored in `%APPDATA%\ExtractorX\config.json`.
+Configuration is stored in `%APPDATA%\ExtractorX\config.json`. Drop a `portable.flag` file next to the script to use portable mode (`ExtractorX.data/` for config/logs).
 
 ## Supported Formats
 
@@ -219,31 +272,43 @@ Multi-volume archives (`.part1.rar`, `.7z.001`, `.zip.001`) are automatically de
 
 ## Architecture
 
+### Python Port
+```
+ExtractorX.py / python -m extractorx
+│
+├── UI Thread (Tkinter mainloop)
+│   ├── ExtractorXApp (themed Tkinter window, dark title bar)
+│   ├── ttk.Treeview queue (status-colored rows, column sorting)
+│   ├── root.after() polling (100ms message pump)
+│   ├── ITaskbarList3 COM progress bar
+│   └── System tray icon (Shell_NotifyIconW via ctypes)
+│
+├── Extraction Thread (ExtractionService)
+│   ├── 7z.exe subprocess (list args, no shell)
+│   ├── Queue[OperationMessage] → UI thread
+│   ├── Password cycling (hash-mode probe → verbose extract)
+│   ├── Nested extraction with quine detection
+│   ├── Zip-slip validation + bomb detection + MotW propagation
+│   └── Post-processing (Smart Extract, hooks, plugins, webhooks)
+│
+├── Scan Thread (scanner.py)
+│   ├── os.scandir recursive enumeration
+│   ├── Magic bytes + extension detection
+│   └── Symlink-loop protection
+│
+└── Watch Thread (watcher.py)
+    ├── Polling-based file detection (3s interval)
+    ├── File stability check (10 polls × 500ms)
+    └── Per-path rule dispatch
+```
+
+### Legacy PowerShell App
 ```
 ExtractorX.ps1 (single file, ~2,500 lines)
-│
-├── UI Thread (STA)
-│   ├── WPF Window (custom chrome, theme system)
-│   ├── Virtualized ListView (10k+ items)
-│   ├── DispatcherTimer (100ms polling)
-│   └── Event handlers (drag/drop, sorting, selection)
-│
-├── Extraction Runspace (background thread)
-│   ├── 7z.exe invocation (-bb1 -bsp1 verbose flags)
-│   ├── ConcurrentQueue real-time output streaming
-│   ├── Password cycling (silent probe then verbose extract)
-│   ├── Nested archive recursion
-│   └── Post-action processing
-│
-├── Scan Runspace (background thread)
-│   ├── Recursive directory enumeration
-│   ├── Extension + magic bytes detection
-│   ├── Multi-volume part filtering
-│   └── Batch UI updates via synchronized queue
-│
+├── WPF Window (custom chrome, theme system)
+├── Extraction Runspace (7z.exe + password cycling)
+├── Scan Runspace (directory enumeration)
 └── Watch System (FileSystemWatcher per folder)
-    ├── Debounced file detection
-    └── Auto-queue with optional auto-extract
 ```
 
 ## Credits
