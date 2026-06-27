@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -58,10 +59,35 @@ _RESERVED_NAMES = frozenset({
 })
 
 
+_DESKTOP_INI_DANGEROUS = re.compile(
+    r"^\s*(IconResource|IconFile|InfoTip|CLSID)\s*=.*[\\/:].+",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def sanitize_desktop_ini(output: Path, log: LogCallback) -> None:
+    """Strip dangerous shell directives from extracted desktop.ini files."""
+    for ini_path in output.rglob("desktop.ini"):
+        if not ini_path.is_file() or ini_path.is_symlink():
+            continue
+        try:
+            content = ini_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        cleaned = _DESKTOP_INI_DANGEROUS.sub("", content)
+        if cleaned != content:
+            try:
+                ini_path.write_text(cleaned, encoding="utf-8")
+                log(f"Sanitized shell directives in {ini_path}", "warning")
+            except OSError:
+                pass
+
+
 def sanitize_extracted_filenames(output: Path, log: LogCallback) -> None:
     """Rename extracted files with dangerous Unicode or Windows reserved names."""
     if not output.is_dir():
         return
+    sanitize_desktop_ini(output, log)
     for path in sorted(output.rglob("*"), key=lambda p: len(str(p)), reverse=True):
         name = path.name
         cleaned = "".join(c for c in name if c not in _BIDI_CHARS)
