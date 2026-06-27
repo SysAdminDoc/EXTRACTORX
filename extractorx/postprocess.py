@@ -36,6 +36,8 @@ def propagate_motw(archive: Path, output: Path, log: LogCallback) -> None:
     for path in output.rglob("*"):
         if not path.is_file() or path.is_symlink():
             continue
+        if path.name.lower() == "desktop.ini":
+            continue
         try:
             target_stream = str(path) + ":Zone.Identifier"
             Path(target_stream).write_text(zone_data, encoding="utf-8")
