@@ -1343,6 +1343,107 @@ class EndToEndExtractionTests(unittest.TestCase):
             self.assertTrue((output_dir / "sub" / "nested.txt").exists())
 
 
+class SanitizeFilenameTests(unittest.TestCase):
+    def test_bidi_chars_stripped(self) -> None:
+        from extractorx.postprocess import sanitize_extracted_filenames
+        with tempfile.TemporaryDirectory() as tmp:
+            bidi_name = "test‮file.txt"
+            path = Path(tmp) / bidi_name
+            path.write_text("content")
+            messages: list[str] = []
+            sanitize_extracted_filenames(Path(tmp), lambda msg, lvl: messages.append(msg))
+            self.assertFalse(path.exists())
+            self.assertTrue((Path(tmp) / "testfile.txt").exists())
+            self.assertTrue(any("Sanitized" in m for m in messages))
+
+    def test_reserved_name_detection(self) -> None:
+        from extractorx.postprocess import _RESERVED_NAMES
+        self.assertIn("con", _RESERVED_NAMES)
+        self.assertIn("prn", _RESERVED_NAMES)
+        self.assertIn("aux", _RESERVED_NAMES)
+        self.assertIn("nul", _RESERVED_NAMES)
+        self.assertIn("com1", _RESERVED_NAMES)
+        self.assertIn("lpt1", _RESERVED_NAMES)
+        self.assertNotIn("readme", _RESERVED_NAMES)
+
+    def test_normal_name_unchanged(self) -> None:
+        from extractorx.postprocess import sanitize_extracted_filenames
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "normal.txt"
+            path.write_text("content")
+            sanitize_extracted_filenames(Path(tmp), lambda msg, lvl: None)
+            self.assertTrue(path.exists())
+
+
+class DllSideloadWarningTests(unittest.TestCase):
+    def test_warns_when_exe_and_dll_present(self) -> None:
+        from extractorx.postprocess import warn_dll_sideloading
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "app.exe").write_text("fake")
+            (Path(tmp) / "payload.dll").write_text("fake")
+            messages: list[str] = []
+            warn_dll_sideloading(Path(tmp), lambda msg, lvl: messages.append(msg))
+            self.assertTrue(any("DLL sideloading" in m for m in messages))
+
+    def test_silent_when_exe_only(self) -> None:
+        from extractorx.postprocess import warn_dll_sideloading
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "app.exe").write_text("fake")
+            messages: list[str] = []
+            warn_dll_sideloading(Path(tmp), lambda msg, lvl: messages.append(msg))
+            self.assertEqual(len(messages), 0)
+
+    def test_silent_when_empty(self) -> None:
+        from extractorx.postprocess import warn_dll_sideloading
+        with tempfile.TemporaryDirectory() as tmp:
+            messages: list[str] = []
+            warn_dll_sideloading(Path(tmp), lambda msg, lvl: messages.append(msg))
+            self.assertEqual(len(messages), 0)
+
+
+class WebhookSchemeTests(unittest.TestCase):
+    def test_rejects_file_scheme(self) -> None:
+        from extractorx.extractor import _send_webhook
+        _send_webhook({"WebhookUrl": "file:///etc/passwd"}, {"test": True})
+
+    def test_rejects_ftp_scheme(self) -> None:
+        from extractorx.extractor import _send_webhook
+        _send_webhook({"WebhookUrl": "ftp://evil.com/exfil"}, {"test": True})
+
+    def test_accepts_https_scheme(self) -> None:
+        from extractorx.extractor import _send_webhook
+        _send_webhook({"WebhookUrl": "https://httpbin.org/post"}, {"test": True})
+
+    def test_empty_url_noop(self) -> None:
+        from extractorx.extractor import _send_webhook
+        _send_webhook({"WebhookUrl": ""}, {"test": True})
+
+
+class RepackSecurityTests(unittest.TestCase):
+    def test_repack_validates_paths(self) -> None:
+        import zipfile
+        from extractorx.repack import repack_archive
+        sevenzip = _find_7zip_for_test()
+        if not sevenzip:
+            self.skipTest("7-Zip not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "test.zip"
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("hello.txt", "Hello")
+            result = repack_archive(sevenzip, archive, "7z", output_dir=Path(tmp))
+            self.assertIsNotNone(result)
+            self.assertTrue(result.exists())
+            self.assertTrue(result.suffix == ".7z")
+
+    def test_repack_rejects_unknown_format(self) -> None:
+        from extractorx.repack import repack_archive
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "test.zip"
+            archive.write_text("fake")
+            result = repack_archive(Path("7z"), archive, "exe")
+            self.assertIsNone(result)
+
+
 def _find_7zip_for_test() -> Path | None:
     from extractorx.sevenzip import find_7zip
     return find_7zip()
