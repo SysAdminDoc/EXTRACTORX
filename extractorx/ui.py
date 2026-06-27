@@ -231,6 +231,10 @@ class ExtractorXApp:
         self.tree.bind("<Double-Button-1>", self._on_queue_double_click)
         self.tree.bind("<Delete>", lambda _e: self._remove_selected())
         self.tree.bind("<Return>", lambda _e: self._extract())
+        self._drag_source_id: str | None = None
+        self.tree.bind("<ButtonPress-1>", self._drag_start)
+        self.tree.bind("<B1-Motion>", self._drag_motion)
+        self.tree.bind("<ButtonRelease-1>", self._drag_end)
         self.root.bind("<Control-o>", lambda _e: self._add_files())
         self.root.bind("<Control-e>", lambda _e: self._extract())
         self.root.bind("<Control-s>", lambda _e: self._export_batch_script())
@@ -396,7 +400,11 @@ class ExtractorXApp:
                 for item_id in selected
                 if item_id in self.items and self.items[item_id].status in self._ELIGIBLE_STATUSES
             ]
-        return [item for item in self.items.values() if item.status in self._ELIGIBLE_STATUSES]
+        return [
+            self.items[item_id]
+            for item_id in self.tree.get_children()
+            if item_id in self.items and self.items[item_id].status in self._ELIGIBLE_STATUSES
+        ]
 
     def _extract(self) -> None:
         self.config["OutputPath"] = self._current_output_template()
@@ -877,6 +885,23 @@ class ExtractorXApp:
 
     def _selected_items(self) -> list[QueueItem]:
         return [self.items[item_id] for item_id in self.tree.selection() if item_id in self.items]
+
+    def _drag_start(self, event: tk.Event) -> None:
+        row = self.tree.identify_row(event.y)
+        if row and self.tree.identify_region(event.x, event.y) == "cell":
+            self._drag_source_id = row
+        else:
+            self._drag_source_id = None
+
+    def _drag_motion(self, event: tk.Event) -> None:
+        if not self._drag_source_id:
+            return
+        target = self.tree.identify_row(event.y)
+        if target and target != self._drag_source_id:
+            self.tree.move(self._drag_source_id, "", self.tree.index(target))
+
+    def _drag_end(self, _event: tk.Event) -> None:
+        self._drag_source_id = None
 
     def _remove_selected(self) -> None:
         for item in self._selected_items():
