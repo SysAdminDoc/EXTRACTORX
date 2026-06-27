@@ -8,7 +8,7 @@ version = "2.6.0"
 description = "Bulk archive extraction for Windows with queueing, nested extraction, password cycling, and watch folders"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [{ name = "Matthew Parker" }]
 classifiers = [
     "Development Status :: 4 - Beta",

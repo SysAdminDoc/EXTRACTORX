@@ -62,7 +62,7 @@
 ## Requirements
 
 - **Windows 10/11** with PowerShell 5.1+ for the legacy WPF app
-- **Python 3.10+** for the modular Python port
+- **Python 3.12+** for the modular Python port
 - **7-Zip** — auto-detected from standard install paths, or downloaded automatically if not found
 
 The Python port uses the standard library Tkinter UI and does not require third-party packages.
