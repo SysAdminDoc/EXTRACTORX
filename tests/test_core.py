@@ -1444,6 +1444,40 @@ class RepackSecurityTests(unittest.TestCase):
             self.assertIsNone(result)
 
 
+class DaemonModeTests(unittest.TestCase):
+    def test_daemon_detects_and_extracts_archive(self) -> None:
+        import zipfile
+        import time
+        from extractorx.config import DEFAULT_CONFIG
+        from extractorx.extractor import ExtractionService
+        from extractorx.watcher import WatchService
+        sevenzip = _find_7zip_for_test()
+        if not sevenzip:
+            self.skipTest("7-Zip not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            watch_dir = Path(tmp) / "watch"
+            watch_dir.mkdir()
+            watch_queue: Queue = Queue()
+            watcher = WatchService([str(watch_dir)], watch_queue, deep_detection=False)
+            watcher.start()
+            try:
+                archive = watch_dir / "test.zip"
+                with zipfile.ZipFile(archive, "w") as zf:
+                    zf.writestr("daemon_test.txt", "Hello from daemon")
+                deadline = time.monotonic() + 15
+                detected = None
+                while time.monotonic() < deadline:
+                    try:
+                        detected = watch_queue.get(timeout=0.5)
+                        break
+                    except Exception:
+                        continue
+                self.assertIsNotNone(detected, "Watcher should detect the archive")
+                self.assertEqual(detected.name, "test.zip")
+            finally:
+                watcher.stop()
+
+
 class NestedExtractionTests(unittest.TestCase):
     def test_nested_zip_in_zip(self) -> None:
         import zipfile
