@@ -1444,6 +1444,78 @@ class RepackSecurityTests(unittest.TestCase):
             self.assertIsNone(result)
 
 
+class NestedExtractionTests(unittest.TestCase):
+    def test_nested_zip_in_zip(self) -> None:
+        import zipfile
+        from extractorx.extractor import ExtractionService
+        from extractorx.config import DEFAULT_CONFIG
+        sevenzip = _find_7zip_for_test()
+        if not sevenzip:
+            self.skipTest("7-Zip not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            inner = Path(tmp) / "inner.zip"
+            with zipfile.ZipFile(inner, "w") as zf:
+                zf.writestr("nested.txt", "Nested content")
+            outer = Path(tmp) / "outer.zip"
+            with zipfile.ZipFile(outer, "w") as zf:
+                zf.write(inner, "inner.zip")
+            output_dir = Path(tmp) / "out"
+            config = dict(DEFAULT_CONFIG)
+            config["NestedExtraction"] = True
+            config["NestedMaxDepth"] = 2
+            config["BlockOutdated7Zip"] = False
+            messages: Queue = Queue()
+            svc = ExtractionService(config, sevenzip, [], messages)
+            item = QueueItem.from_path(outer)
+            item.output_override = str(output_dir)
+            svc.extract_items([item])
+            svc.thread.join(timeout=30)
+            self.assertEqual(item.status, QueueStatus.DONE)
+            found = list(output_dir.rglob("nested.txt"))
+            self.assertTrue(len(found) > 0, "Nested file should be extracted")
+
+
+class QuineDetectionTests(unittest.TestCase):
+    def test_quine_hash_blocks_recursion(self) -> None:
+        from extractorx.extractor import _file_sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "quine.zip"
+            archive.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+            file_hash = _file_sha256(archive)
+            self.assertIsNotNone(file_hash)
+            ancestor_hashes = {file_hash}
+            self.assertIn(file_hash, ancestor_hashes)
+
+
+class DecompressionRatioTests2(unittest.TestCase):
+    def test_ratio_check_detects_bomb(self) -> None:
+        from extractorx.extractor import ExtractionService
+        from extractorx.config import DEFAULT_CONFIG
+        config = dict(DEFAULT_CONFIG)
+        config["MaxDecompressionRatio"] = 10
+        messages: Queue = Queue()
+        svc = ExtractionService(config, Path("7z"), [], messages)
+        result = svc._check_decompression_ratio(
+            Path("tiny.zip"),
+            "Size: 999999999\nCompressed: 100"
+        )
+        self.assertIsNone(result)
+
+    def test_ratio_check_with_real_sizes(self) -> None:
+        from extractorx.extractor import ExtractionService
+        from extractorx.config import DEFAULT_CONFIG
+        config = dict(DEFAULT_CONFIG)
+        config["MaxDecompressionRatio"] = 10
+        messages: Queue = Queue()
+        svc = ExtractionService(config, Path("7z"), [], messages)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "small.zip"
+            archive.write_bytes(b"x" * 100)
+            result = svc._check_decompression_ratio(archive, "Size: 50000")
+            self.assertIsNotNone(result)
+            self.assertIn("zip bomb", result)
+
+
 def _find_7zip_for_test() -> Path | None:
     from extractorx.sevenzip import find_7zip
     return find_7zip()
