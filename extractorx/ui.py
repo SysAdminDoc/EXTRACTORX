@@ -229,6 +229,12 @@ class ExtractorXApp:
         self.tree.bind("<<TreeviewSelect>>", lambda _event: self._update_footer())
         self.tree.bind("<Button-3>", self._show_queue_menu)
         self.tree.bind("<Double-Button-1>", self._on_queue_double_click)
+        self.tree.bind("<Delete>", lambda _e: self._remove_selected())
+        self.tree.bind("<Return>", lambda _e: self._extract())
+        self.root.bind("<Control-o>", lambda _e: self._add_files())
+        self.root.bind("<Control-e>", lambda _e: self._extract())
+        self.root.bind("<Control-s>", lambda _e: self._export_batch_script())
+        self.root.bind("<Escape>", lambda _e: self._stop_extraction())
         self.tree.tag_configure("queued", foreground=p["muted"])
         self.tree.tag_configure("working", foreground=p["accent"])
         self.tree.tag_configure("done", foreground=p["ok"])
@@ -469,19 +475,31 @@ class ExtractorXApp:
         )
         if not target:
             return
-        entrypoint = Path(sys.executable)
-        script = Path(__file__).resolve().parents[1] / "ExtractorX.py"
-        lines = ["@echo off", f"REM ExtractorX v{__version__} batch export", ""]
+        from .sevenzip import build_sevenzip_command
+        from .archive import resolve_output_path
+        lines = ["@echo off", f"REM ExtractorX v{__version__} — 7-Zip batch export", ""]
         for item in self.items.values():
-            parts = [_cmd_quote(str(entrypoint)), _cmd_quote(str(script))]
-            if item.output_override:
-                parts.extend(["--target", _cmd_quote(item.output_override)])
-            parts.append("--auto-extract")
-            parts.append(_cmd_quote(str(item.archive_path)))
-            lines.append(" ".join(parts))
+            output = (
+                Path(item.output_override).expanduser()
+                if item.output_override
+                else resolve_output_path(str(self.config.get("OutputPath", "")), item.archive_path)
+            )
+            try:
+                cmd = build_sevenzip_command(
+                    sevenzip_path=self.sevenzip_path,
+                    archive=item.archive_path,
+                    output=output,
+                    overwrite_mode=str(self.config.get("OverwriteMode", "Always")),
+                    exclusions=str(self.config.get("FileExclusions", "")),
+                    inclusions=str(self.config.get("IncludeMasks", "")),
+                    filename_encoding=str(self.config.get("FilenameEncoding", "Auto")),
+                )
+            except ValueError:
+                cmd = ["7z", "x", str(item.archive_path), f"-o{output}", "-y"]
+            lines.append(" ".join(_cmd_quote(arg) for arg in cmd))
         try:
             Path(target).write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
-            self._log(f"Exported {len(self.items)} item(s) to {target}", "success")
+            self._log(f"Exported {len(self.items)} item(s) as 7z commands to {target}", "success")
         except OSError as exc:
             messagebox.showerror("Export failed", str(exc), parent=self.root)
 

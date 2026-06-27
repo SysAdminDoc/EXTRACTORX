@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import ctypes
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from queue import Queue
@@ -144,6 +145,8 @@ class ExtractionService:
         parallelism = max(1, int(self.config.get("MaxParallelExtractions", 1) or 1)) if not test_only else 1
         parallelism = min(parallelism, max(1, len(items)))
         progress_counter = {"value": 0}
+        batch_start = time.monotonic()
+        bytes_processed = {"value": 0}
 
         def process(index: int, item: QueueItem) -> None:
             _apply_thread_priority(priority)
@@ -152,10 +155,16 @@ class ExtractionService:
             with self._progress_lock:
                 progress_counter["value"] += 1
                 current = progress_counter["value"]
+            elapsed = time.monotonic() - batch_start
+            throughput = bytes_processed["value"] / elapsed if elapsed > 0.5 else 0
+            remaining = total - current
+            eta_seconds = int(elapsed / current * remaining) if current > 0 and remaining > 0 else 0
+            eta_text = f" — ETA {eta_seconds // 60}m{eta_seconds % 60:02d}s" if eta_seconds > 0 else ""
+            throughput_text = f" ({format_size(int(throughput))}/s)" if throughput > 0 else ""
             self.messages.put(
                 OperationMessage(
                     "progress",
-                    f"{verb} {current}/{total}: {item.archive_path.name}",
+                    f"{verb} {current}/{total}: {item.archive_path.name}{throughput_text}{eta_text}",
                     item_id=item.id,
                     payload={"total": total, "current": current, "test_only": test_only},
                 )
@@ -267,6 +276,8 @@ class ExtractionService:
                     output = cleanup_success_output(output, item.archive_path, self.config, self._log)
                     item.output_path = output
                     item.status = QueueStatus.DONE
+                    with self._progress_lock:
+                        bytes_processed["value"] += item.size_bytes
                     if bool(self.config.get("PropagateMotw", True)):
                         propagate_motw(item.archive_path, output, self._log)
                     self.messages.put(
